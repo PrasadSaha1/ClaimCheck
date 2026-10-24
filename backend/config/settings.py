@@ -26,7 +26,11 @@ load_dotenv(BASE_DIR / '.env')
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-claimcheck-local-demo-only')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DJANGO_DEBUG', '1') == '1'
+# Off unless DJANGO_DEBUG=1 is set (backend/.env sets it for local dev).
+DEBUG = os.environ.get('DJANGO_DEBUG', '0') == '1'
+
+if not DEBUG and SECRET_KEY.startswith('django-insecure-'):
+    raise RuntimeError('Set DJANGO_SECRET_KEY when DJANGO_DEBUG is off.')
 
 ALLOWED_HOSTS = os.environ.get('DJANGO_ALLOWED_HOSTS', '127.0.0.1,localhost').split(',')
 CSRF_TRUSTED_ORIGINS = os.environ.get(
