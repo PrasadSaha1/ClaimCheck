@@ -3,7 +3,7 @@ codex.md
 **/*.pyc
 backend/.venv/
 backend/media/
-backend/local.sqlite3
+backend/*.sqlite3
 frontend/dist/
 frontend/node_modules/
 backend/.env
