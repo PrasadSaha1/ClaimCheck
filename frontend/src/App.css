@@ -23,4 +23,4 @@
 
 .success {
   color: green;
-}
+}.draft-button{justify-self:start;font-size:13px}.draft-button:disabled{color:#7a929c}.question-offer{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:#f2f8f6;border-radius:10px;padding:10px 13px;font-size:13px;font-weight:700;color:#24495b}.photo-grid{display:flex;flex-wrap:wrap;gap:10px}.photo-thumb{position:relative;width:96px;height:96px}.photo-thumb img{width:100%;height:100%;object-fit:cover;border-radius:10px;border:1px solid #d6e4e5}.photo-thumb button{position:absolute;top:-7px;right:-7px;width:24px;height:24px;border-radius:50%;border:0;background:#0b5268;color:#fff;font-size:15px;line-height:1;cursor:pointer}.photo-add{justify-self:start;border:1px dashed #9cc3c8;border-radius:10px;padding:11px 16px;color:#0b5268;font-weight:800;font-size:13px;cursor:pointer;background:#f5fafa}.photo-add:hover{background:#e9f4f2}.text-button.danger.clear-all{margin:0}.inbox-actions{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
