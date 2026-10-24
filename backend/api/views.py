@@ -8,13 +8,16 @@ import os
 
 import re
 
-from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
+
+from datetime import datetime, timedelta
 
 
 
 from django.http import FileResponse, JsonResponse
 from django.contrib.auth.hashers import make_password, check_password
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 
@@ -30,7 +33,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 from . import ai
 
-from .models import Claim, DemoUser, FoundItem, ItemPhoto, LostReport, Notification
+from .models import Claim, ClaimQuestion, DemoUser, FoundItem, ItemPhoto, LostReport, MatchScore, Notification
 
 from django.conf import settings
 from django.core import signing
@@ -119,9 +122,9 @@ def timestamp(value):
 
 def validate_photos(files, required=False):
 
-    if (required and not files) or len(files) > 5:
+    if required and not files:
 
-        raise ValueError('Add between 1 and 5 photos.' if required else 'Use up to 5 photos.')
+        raise ValueError('Add at least one photo.')
 
     for file in files:
 
@@ -161,7 +164,11 @@ def normalized_photos(files):
 
             output = io.BytesIO()
 
-            ImageOps.exif_transpose(image).convert('RGB').save(output, format='JPEG', quality=85)
+            image = ImageOps.exif_transpose(image).convert('RGB')
+
+            image.thumbnail((1600, 1600))
+
+            image.save(output, format='JPEG', quality=85)
 
         clean.append(SimpleUploadedFile('item.jpg', output.getvalue(), content_type='image/jpeg'))
 
@@ -194,6 +201,12 @@ def item_json(item, viewer):
             'location_note': item.location_note, 'claim_question': item.claim_question,
 
             'status': item.status, 'ai_review': item.ai_review, 'photos': photos_for(item, viewer)}
+
+    alt = viewer and not own and ClaimQuestion.objects.filter(item=item, claimant=viewer).first()
+
+    if alt:
+
+        data['claim_question'] = alt.question
 
     if own:
 
@@ -239,45 +252,187 @@ def distance_m(a, b):
 
 
 
+TIME_GRACE = timedelta(hours=1)
+
+
+
+
+
+
+
+def words(text):
+
+    return set(re.findall(r'[a-z0-9]{3,}', text.lower()))
+
+
+
+
+
+
+
+def match_parts(report, item):
+
+    """How well a found item fits a lost report on text, place, and time, or None if it cannot be the same item."""
+
+    if item.found_at < report.lost_after - TIME_GRACE:
+
+        return None  # Found before it was lost.
+
+    days_late = (item.found_at - report.lost_before).total_seconds() / 86400
+
+    time = 1 if days_late <= 2 else max(0, 1 - (days_late - 2) / 12)
+
+    distance = distance_m(report, item)
+
+    beyond = max(0, distance - report.radius_m)
+
+    if beyond > 1500:
+
+        return None
+
+    shared = words(report.description) & words(item.description + ' ' + item.public_description)
+
+    keyword = min(1, len(shared) / max(1, min(len(words(report.description)), 5)))
+
+    text = max(keyword, ai.similarity(report.embedding, item.embedding))
+
+    if text < .18:
+
+        return None
+
+    return {'text': text, 'location': 1 - beyond / 1500, 'time': time,
+
+            'category': int(report.category == item.category), 'distance': distance}
+
+
+
+
+
+
+
+def match_score(parts, photo):
+
+    if photo is None:
+
+        return .5 * parts['text'] + .25 * parts['location'] + .18 * parts['time'] + .07 * parts['category']
+
+    return (.35 * parts['text'] + .25 * photo + .2 * parts['location'] + .15 * parts['time']
+
+            + .05 * parts['category'])
+
+
+
+
+
+
+
 def matches_for(report):
 
-    def words(text):
-
-        return set(re.findall(r'[a-z0-9]{3,}', text.lower()))
+    photo_scores = dict(report.match_scores.values_list('item_id', 'photo_score'))
 
     matches = []
 
     for item in FoundItem.objects.filter(status='open').exclude(finder=report.owner).prefetch_related('photos'):
 
-        shared = words(report.description) & words(item.description + ' ' + item.public_description)
+        parts = match_parts(report, item)
 
-        keyword = len(shared) / max(1, min(len(words(report.description)), 5))
-
-        semantic = ai.similarity(report.embedding, item.embedding)
-
-        if max(keyword, semantic) < .18:
+        if not parts:
 
             continue
 
-        distance = distance_m(report, item)
+        photo = photo_scores.get(item.id)
 
-        location = max(0, 1 - max(0, distance - report.radius_m) / 1500)
+        score = match_score(parts, photo)
 
-        time = int(report.lost_after <= item.found_at <= report.lost_before)
+        if score < .38:
 
-        category = int(report.category == item.category)
+            continue
 
-        score = min(1, .45 * max(keyword, semantic) + .2 * min(keyword, 1) + .18 * location + .1 * time + .07 * category)
+        # Strong needs more than similar descriptions: time and place must fit, and photos must not disagree.
 
-        if score >= .38:
+        strong = score >= .68 and parts['time'] >= .5 and parts['location'] >= .5 and (photo is None or photo >= .3)
 
-            matches.append({'item': item_json(item, report.owner), 'score': round(score, 3),
+        matches.append({'item': item_json(item, report.owner), 'score': round(score, 3),
 
-                            'confidence': 'Strong match' if score >= .68 else 'Possible match',
+                        'confidence': 'Strong match' if strong else 'Possible match',
 
-                            'distance_m': round(distance)})
+                        'distance_m': round(parts['distance'])})
 
     return sorted(matches, key=lambda m: m['score'], reverse=True)[:10]
+
+
+
+
+
+
+
+def candidate_pairs(reports, items):
+
+    pairs = []
+
+    for report in reports:
+
+        for item in items:
+
+            parts = report.owner_id != item.finder_id and match_parts(report, item)
+
+            if parts:
+
+                pairs.append((match_score(parts, None), report, item))
+
+    return pairs
+
+
+
+
+
+
+
+def ai_photos(photos):
+
+    # Stored photos are already normalized JPEGs.
+
+    files = []
+
+    for photo in photos[:ai.MAX_AI_PHOTOS]:
+
+        with photo.image.open('rb') as file:
+
+            files.append(SimpleUploadedFile('item.jpg', file.read(), content_type='image/jpeg'))
+
+    return files
+
+
+
+
+
+
+
+def score_photos(pairs, limit=5):
+
+    """Have Gemini compare photos for the most promising new pairs, once per pair."""
+
+    pairs = [(report, item) for _, report, item in sorted(pairs, key=lambda p: p[0], reverse=True)
+
+             if report.photos.exists() and item.photos.exists()
+
+             and not MatchScore.objects.filter(report=report, item=item).exists()][:limit]
+
+    if not pairs:
+
+        return
+
+    inputs = [(ai_photos(report.photos.all()), ai_photos(item.photos.all())) for report, item in pairs]
+
+    with ThreadPoolExecutor(max_workers=limit) as pool:
+
+        results = list(pool.map(lambda photos: ai.compare_photos(*photos), inputs))
+
+    for (report, item), score in zip(pairs, results):
+
+        if score is not None:
+
+            MatchScore.objects.get_or_create(report=report, item=item, defaults={'photo_score': score})
 
 
 
@@ -501,6 +656,12 @@ def claim_json(claim, viewer):
 
         data['claimant'] = {'name': claim.claimant.name}
 
+        alt = ClaimQuestion.objects.filter(item=claim.item, claimant=claim.claimant, created_at__lte=claim.created_at).first()
+
+        if alt:
+
+            data['alt_question'] = {'question': alt.question, 'secret_detail': alt.secret_detail}
+
     if claim.status == 'approved':
 
         person = claim.claimant if finder else claim.item.finder
@@ -525,17 +686,17 @@ def dashboard(request):
 
         return error('Method not allowed.', 405)
 
-    claims = Claim.objects.filter(claimant=user) | Claim.objects.filter(item__finder=user)
+    claims = Claim.objects.filter(claimant=user, hidden_by_claimant=False) | Claim.objects.filter(item__finder=user, hidden_by_finder=False)
 
     return JsonResponse({
 
-        'lost': [lost_json(r) for r in user.lost_reports.order_by('-created_at').prefetch_related('photos')],
+        'lost': [lost_json(r) for r in user.lost_reports.filter(hidden=False).order_by('-created_at').prefetch_related('photos')],
 
-        'found': [item_json(i, user) for i in user.found_items.order_by('-created_at').prefetch_related('photos')],
+        'found': [item_json(i, user) for i in user.found_items.filter(hidden=False).order_by('-created_at').prefetch_related('photos')],
 
         'claims': [claim_json(c, user) for c in claims.distinct().order_by('-created_at')],
 
-        'notifications': [{'id': n.id, 'message': n.message, 'read': n.read} for n in user.notifications.order_by('-created_at')[:30]],
+        'notifications': [{'id': n.id, 'message': n.message, 'read': n.read} for n in user.notifications.filter(hidden=False).order_by('-created_at')[:30]],
 
     })
 
@@ -592,6 +753,8 @@ def lost(request):
     for file in files:
 
         ItemPhoto.objects.create(lost_report=report, image=file)
+
+    score_photos(candidate_pairs([report], FoundItem.objects.filter(status='open')))
 
     notify_matches(report)
 
@@ -661,15 +824,93 @@ def found(request):
 
         ItemPhoto.objects.create(found_item=item, image=file, public=index in review['public_photo_indexes'])
 
-    for report in LostReport.objects.filter(status='open').exclude(owner=user):
+    reports = list(LostReport.objects.filter(status='open').exclude(owner=user))
+
+    score_photos(candidate_pairs(reports, [item]))
+
+    for report in reports:
 
         notify_matches(report)
 
     return JsonResponse(item_json(item, user), status=201)
 
 
+def clear_reports(request):
+    # Open posts are deleted. Returned ones are only hidden, since the other person's claim history points to them.
+    # Handoffs in progress stay, because someone is still waiting on them.
+    user = user_for(request)
+    if not user:
+        return error('Please log in first.', 401)
+    if request.method != 'POST':
+        return error('Method not allowed.', 405)
+    deleted = user.lost_reports.filter(status='open').delete()[1].get('api.LostReport', 0)
+    deleted += user.found_items.filter(status='open').delete()[1].get('api.FoundItem', 0)
+    hidden = user.lost_reports.filter(status='returned', hidden=False).update(hidden=True)
+    hidden += user.found_items.filter(status='returned', hidden=False).update(hidden=True)
+    kept = user.lost_reports.filter(hidden=False).count() + user.found_items.filter(hidden=False).count()
+    return JsonResponse({'deleted': deleted, 'hidden': hidden, 'kept': kept})
+
+
+def clear_claims(request):
+    # Only hides finished claims from this user's list; the other person still sees them.
+    # Claims awaiting a decision and handoffs not yet returned stay, since someone still has to act.
+    user = user_for(request)
+    if not user:
+        return error('Please log in first.', 401)
+    if request.method != 'POST':
+        return error('Method not allowed.', 405)
+    finished = Q(status='rejected') | Q(status='approved', item__status='returned')
+    hidden = Claim.objects.filter(finished, claimant=user, hidden_by_claimant=False).update(hidden_by_claimant=True)
+    hidden += Claim.objects.filter(finished, item__finder=user, hidden_by_finder=False).update(hidden_by_finder=True)
+    kept = (Claim.objects.filter(claimant=user, hidden_by_claimant=False) | Claim.objects.filter(item__finder=user, hidden_by_finder=False)).distinct().count()
+    return JsonResponse({'hidden': hidden, 'kept': kept})
+
+
+def clear_notifications(request):
+    user = user_for(request)
+    if not user:
+        return error('Please log in first.', 401)
+    if request.method != 'POST':
+        return error('Method not allowed.', 405)
+    user.notifications.filter(hidden=False).update(hidden=True, read=True)
+    return JsonResponse({'ok': True})
+
+
+def new_claim_question(request, item_id):
+    # After one wrong answer, a claimant can swap to a different question once. Attempts still cap at two.
+    user = user_for(request)
+    if not user:
+        return error('Please log in first.', 401)
+    if request.method != 'POST':
+        return error('Method not allowed.', 405)
+    item = get_object_or_404(FoundItem, pk=item_id, status='open')
+    if item.finder_id == user.id:
+        return error('You cannot claim your own item.', 403)
+    if Claim.objects.filter(item=item, claimant=user, status='rejected').count() != 1:
+        return error('A new question is only available after one wrong answer.', 409)
+    if ClaimQuestion.objects.filter(item=item, claimant=user).exists():
+        return error('You already have a new question for this item.', 409)
+    result = ai.new_question(item.description, item.secret_detail, item.public_description, ai_photos(item.photos.all()))
+    if not result:
+        return error('Could not make a different question right now. Try the current one.', 503)
+    try:
+        alt = ClaimQuestion.objects.create(item=item, claimant=user, question=result['claim_question'],
+                                           secret_detail=result['secret_detail'])
+    except IntegrityError:
+        return error('You already have a new question for this item.', 409)
+    return JsonResponse({'claim_question': alt.question}, status=201)
+
+
 def found_draft(request):
     # Snap-to-post: Gemini drafts the form from photos. Nothing is saved here.
+    return draft_from_photos(request, ai.draft_found)
+
+
+def lost_draft(request):
+    return draft_from_photos(request, ai.draft_lost)
+
+
+def draft_from_photos(request, drafter):
     user = user_for(request)
     if not user:
         return error('Please log in first.', 401)
@@ -680,7 +921,7 @@ def found_draft(request):
         validate_photos(files, required=True)
     except ValueError as exc:
         return error(str(exc))
-    draft = ai.draft_found(normalized_photos(files), CATEGORIES)
+    draft = drafter(normalized_photos(files), CATEGORIES)
     if not draft:
         return error('Could not draft from these photos. Fill in the details below.', 503)
     return JsonResponse(draft)
@@ -859,7 +1100,8 @@ def claim_item(request, item_id):
 
         return error(str(exc))
 
-    verdict = 'unsure' if manual else ai.verify(item.secret_detail, answer)
+    alt = ClaimQuestion.objects.filter(item=item, claimant=user).first()
+    verdict = 'unsure' if manual else ai.verify(alt.secret_detail if alt else item.secret_detail, answer)
 
     status = {'pass': 'approved', 'fail': 'rejected', 'unsure': 'pending'}[verdict]
 
