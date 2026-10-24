@@ -3,12 +3,13 @@ import json
 from datetime import timedelta
 from unittest.mock import patch
 
+from django.contrib.auth.hashers import make_password
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase
 from django.utils import timezone
 from PIL import Image
 
-from .models import FoundItem
+from .models import DemoUser, FoundItem
 
 
 def image():
@@ -18,11 +19,12 @@ def image():
 
 
 def account(name):
+    DemoUser.objects.create(name=name, email=name + '@example.com', email_verified=True,
+                            password_hash=make_password('password123'))
     client = Client()
-    client.get('/api/session/')
-    response = client.post('/api/session/', data=json.dumps({'name': name, 'email': name + '@example.com'}),
+    response = client.post('/api/login/', data=json.dumps({'name': name, 'password': 'password123'}),
                            content_type='application/json')
-    assert response.status_code == 201
+    assert response.status_code == 200
     return client
 
 
@@ -79,6 +81,22 @@ class ReportFlowTests(TestCase):
         self.assertEqual(self.owner.get(f'/api/photos/{photo_id}/').status_code, 200)
         self.assertEqual(self.owner.post(f'/api/found/{item["id"]}/return/').status_code, 200)
         self.assertEqual(FoundItem.objects.get(pk=item['id']).status, 'returned')
+
+    @patch('api.ai.similarity', return_value=.9)
+    def test_different_categories_never_match(self, _similarity):
+        self.finder.post('/api/found/', {
+            'photos': image(), 'description': 'light blue rolled-up t-shirt with a graphic design',
+            'secret_detail': 'paper band', 'category': 'Clothing',
+            'latitude': '40.9126', 'longitude': '-73.1232',
+            'found_at': self.now.isoformat(), 'holding_location': 'Library desk',
+        })
+        report_id = self.owner.post('/api/lost/', {
+            'description': 'grey Lenovo laptop', 'category': 'Electronics',
+            'latitude': '40.9127', 'longitude': '-73.1233', 'radius_m': '400',
+            'lost_after': (self.now - timedelta(hours=2)).isoformat(),
+            'lost_before': (self.now + timedelta(hours=2)).isoformat(),
+        }).json()['id']
+        self.assertEqual(self.owner.get(f'/api/lost/{report_id}/').json()['matches'], [])
 
     @patch('api.ai.verify', return_value='fail')
     def test_two_failed_answers_then_manual_request(self, _verify):

@@ -286,6 +286,12 @@ def match_parts(report, item):
 
         return None  # Found before it was lost.
 
+    # A t-shirt is not a laptop: two different real categories are never the same item.
+
+    if report.category != item.category and 'Other' not in (report.category, item.category):
+
+        return None
+
     days_late = (item.found_at - report.lost_before).total_seconds() / 86400
 
     time = 1 if days_late <= 2 else max(0, 1 - (days_late - 2) / 12)
@@ -307,12 +313,6 @@ def match_parts(report, item):
     text = max(keyword, semantic)
 
     if text < .18:
-
-        return None
-
-    # A sweater is not a laptop: different categories only match when the descriptions clearly agree.
-
-    if report.category != item.category and 'Other' not in (report.category, item.category) and max(keyword * .8, semantic) < .7:
 
         return None
 
@@ -357,6 +357,10 @@ def matches_for(report):
             continue
 
         photo = photo_scores.get(item.id)
+
+        if photo is not None and photo < .15:
+
+            continue  # Gemini compared the photos and they show clearly different items.
 
         score = match_score(parts, photo)
 
