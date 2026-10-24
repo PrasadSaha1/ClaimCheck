@@ -1,0 +1,9 @@
+codex.md
+**/__pycache__/
+**/*.pyc
+backend/.venv/
+backend/media/
+backend/local.sqlite3
+frontend/dist/
+frontend/node_modules/
+backend/.env
