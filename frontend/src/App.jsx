@@ -345,19 +345,22 @@ export default function App() {
     try { setBusy(true); setMessage(''); const result = await api('/login/', { method: 'POST', body: values }); setUser(result.user); await reload() }
     catch (e) { setMessage(e.message) } finally { setBusy(false) }
   }
-  async function signUp(values) {
-    try {
-      setBusy(true)
-      setMessage('')
-      const result = await api('/signup/', { method: 'POST', body: values })
-      setUser(result.user)
-      await reload()
-    } catch (e) {
-      setMessage(e.message)
-    } finally {
-      setBusy(false)
-    }
+async function signUp(values) {
+  setBusy(true)
+  setMessage("")
+
+  try {
+    const result = await api("/signup/", {
+      method: "POST",
+body: values,    })
+
+    setMessage(result.message)
+  } catch (err) {
+    setMessage(err.message)
+  } finally {
+    setBusy(false)
   }
+}
   async function submit(form, kind) {
     setBusy(true)
     try {

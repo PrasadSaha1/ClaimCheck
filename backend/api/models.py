@@ -3,9 +3,10 @@ from django.db import models
 
 class DemoUser(models.Model):
     name = models.CharField(max_length=80, unique=True)
-    email = models.EmailField(unique=True)
+    email = models.EmailField(unique=False) # CHANGE TO TRUE LATER (and clear the db when you do to avoid errors)
     phone = models.CharField(max_length=30, blank=True)
     password_hash = models.CharField(max_length=128)
+    email_verified = models.BooleanField(default=False)
 
 
 class LostReport(models.Model):

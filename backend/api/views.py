@@ -32,7 +32,11 @@ from . import ai
 
 from .models import Claim, DemoUser, FoundItem, ItemPhoto, LostReport, Notification
 
-
+from django.conf import settings
+from django.core import signing
+from django.core.mail import send_mail
+from django.http import HttpResponseRedirect
+from django.urls import reverse
 
 
 
@@ -51,10 +55,15 @@ def error(message, status=400):
 
 
 def user_for(request):
+    user_id = request.session.get("demo_user_id")
 
-    return DemoUser.objects.filter(pk=request.session.get('demo_user_id')).first()
+    if not user_id:
+        return None
 
-
+    return DemoUser.objects.filter(
+        id=user_id,
+        email_verified=True,
+    ).first()
 
 
 
@@ -315,6 +324,7 @@ def signup(request):
         return error('Method not allowed.', 405)
 
     data = payload(request)
+    print(data)
     name = str(data.get('name', '')).strip()
     password = str(data.get('password', ''))
     confirm = str(data.get('confirm_password', ''))
@@ -327,28 +337,107 @@ def signup(request):
         return error('Password must be at least 8 characters long.')
     if password != confirm:
         return error('Passwords do not match.')
-    if not re.fullmatch(r'[^@\s]+@stonybrook\.edu', email):
-        return error('Email must be a valid Stony Brook email address.')
+    
+    # This is only commented out for testing purposes
+    # if not re.fullmatch(r'[^@\s]+@stonybrook\.edu', email):
+    #    return error('Email must be a valid Stony Brook email address.')
+    
     if len(email) > 254 or len(phone) > 30:
         return error('Email or phone number is too long.')
     if DemoUser.objects.filter(name=name).exists():
         return error('Username already exists.', 409)
-    if DemoUser.objects.filter(email__iexact=email).exists():
-        return error('Email already registered.', 409)
+
+    # For testing purposes, we allow duplicate emails. In production, this should be unique.
+    # if DemoUser.objects.filter(email__iexact=email).exists():
+    #    return error('Email already registered.', 409)
+
+    user = DemoUser.objects.create(
+        name=name,
+        email=email,
+        phone=phone,
+        password_hash=make_password(password),
+        email_verified=False,
+    )
+
+    token = signing.dumps(
+        {
+            "user_id": user.id,
+            "email": user.email,
+            "password_hash": user.password_hash,
+        },
+        salt="claimcheck-email-verification",
+    )
+
+    verification_url = request.build_absolute_uri(
+        reverse("verify_email") + "?token=" + token
+    )
 
     try:
-        with transaction.atomic():
-            user = DemoUser.objects.create(
-                name=name, email=email, phone=phone,
-                password_hash=make_password(password),
-            )
-    except IntegrityError:
-        return error('Username or email already exists.', 409)
+        send_mail(
+            subject="Verify your ClaimCheck email",
+            message=(
+                f"Welcome to ClaimCheck!\n\n"
+                f"Verify your email by clicking this link:\n\n"
+                f"{verification_url}\n\n"
+                f"This link expires in 24 hours."
+            ),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[user.email],
+            fail_silently=False,
+        )
+    except Exception as e:
+        user.delete()
+        print(e)
+        return error(
+            "Could not send verification email. Please try again.",
+            503,
+        )
 
-    request.session.cycle_key()
-    request.session['demo_user_id'] = user.id
-    return JsonResponse({'user': user_json(user)}, status=201)
+    return JsonResponse(
+        {
+            "message": "Check your Stony Brook email to verify your account.",
+            "verification_required": True,
+        },
+        status=201,
+    )
 
+def verify_email(request):
+    if request.method != "GET":
+        return error("Method not allowed.", 405)
+
+    token = request.GET.get("token", "")
+
+    try:
+        data = signing.loads(
+            token,
+            salt="claimcheck-email-verification",
+            max_age=60 * 60 * 24,
+        )
+    except signing.BadSignature:
+        return JsonResponse(
+            {"error": "Invalid or expired verification link."},
+            status=400,
+        )
+
+    user = DemoUser.objects.filter(
+        id=data["user_id"],
+        email=data["email"],
+        password_hash=data["password_hash"],
+    ).first()
+
+    if user is None:
+        return JsonResponse(
+            {"error": "Invalid verification link."},
+            status=400,
+        )
+
+    if not user.email_verified:
+        user.email_verified = True
+        user.save(update_fields=["email_verified"])
+
+    return HttpResponseRedirect(
+        "http://localhost:5173/?verified=1"
+    )
 
 def login_user(request):
     if request.method != 'POST':
@@ -360,6 +449,12 @@ def login_user(request):
     user = DemoUser.objects.filter(name=name).first()
     if not user or not check_password(password, user.password_hash):
         return error('Invalid username or password.', 401)
+
+    if not user.email_verified:
+        return error(
+            "Please verify your email before logging in.",
+            403,
+        )
 
     request.session.cycle_key()
     request.session['demo_user_id'] = user.id
