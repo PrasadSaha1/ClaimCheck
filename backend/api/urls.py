@@ -11,6 +11,7 @@ urlpatterns = [
     path('lost/', views.lost),
     path('lost/<int:report_id>/', views.lost_detail),
     path('found/', views.found),
+    path('found/draft/', views.found_draft),
     path('found/<int:item_id>/', views.found_detail),
     path('found/<int:item_id>/claims/', views.claim_item),
     path('found/<int:item_id>/return/', views.return_item),

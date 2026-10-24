@@ -239,6 +239,34 @@ function FoundForm({ submit, busy, goBack }) {
   const [photos, setPhotos] = useState([])
   const [error, setError] = useState('')
   const [foundAt, setFoundAt] = useState(() => localDate(Date.now()))
+  const [description, setDescription] = useState('')
+  const [secret, setSecret] = useState('')
+  const [category, setCategory] = useState(CATEGORIES[0])
+  const [draft, setDraft] = useState('')
+  useEffect(() => {
+    navigator.geolocation?.getCurrentPosition(({ coords }) => {
+      const { latitude, longitude } = coords
+      if (latitude >= 40.86 && latitude <= 40.94 && longitude >= -73.15 && longitude <= -73.06) {
+        setPoint((current) => current || { latitude: Number(latitude.toFixed(6)), longitude: Number(longitude.toFixed(6)) })
+      }
+    }, () => {}, { timeout: 8000 })
+  }, [])
+  async function onPhotos(files) {
+    setPhotos(files)
+    if (!files.length) return
+    const body = new FormData()
+    files.forEach((file) => body.append('photos', file))
+    setDraft('loading')
+    try {
+      const result = await api('/found/draft/', { method: 'POST', body })
+      setCategory(result.category)
+      setDescription((current) => current || result.description)
+      setSecret((current) => current || result.secret_detail)
+      setDraft(result.confidence === 'low' ? 'low' : 'done')
+    } catch {
+      setDraft('failed')
+    }
+  }
   async function onSubmit(event) {
     event.preventDefault()
     if (!point) { setError('Pin where you found the item.'); return }
@@ -253,17 +281,21 @@ function FoundForm({ submit, busy, goBack }) {
     <button className="back-link" onClick={goBack}>← Back to home</button>
     <div className="page-heading"><span className="eyebrow">THANKS FOR HELPING</span><h1>I found something</h1><p>A few details can make all the difference to the person looking for it.</p></div>
     <form className="form-card" onSubmit={onSubmit}>
-      <FormField label="Photos *" hint="Add 1–5 clear photos. We review which can be shown to other people."><input type="file" accept="image/jpeg,image/png,image/webp" multiple required onChange={(e) => setPhotos([...e.target.files])} /></FormField>
-      <FormField label="Describe the item" hint="Include details photos may not show."><textarea name="description" rows={3} maxLength={2000} placeholder="Found near the library entrance..." /></FormField>
+      <FormField label="Photos *" hint="Start here. Gemini drafts the details below from your photos, and we review which can be shown to other people."><input type="file" accept="image/jpeg,image/png,image/webp" multiple required onChange={(e) => onPhotos([...e.target.files])} /></FormField>
+      {draft === 'loading' && <p className="field-copy">Gemini is reading your photos…</p>}
+      {draft === 'done' && <p className="success">Drafted from your photos. Check the details before posting.</p>}
+      {draft === 'low' && <p className="error">The photos were hard to read. Please check and add details yourself.</p>}
+      {draft === 'failed' && <p className="field-copy">Couldn't draft from these photos. Fill in the details below.</p>}
+      <FormField label="Describe the item" hint="Include details photos may not show."><textarea name="description" rows={3} maxLength={2000} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Found near the library entrance..." /></FormField>
       <FormField label="Private identifying detail *" hint="Only you and the claim review can see this.">
-        <input name="secret_detail" required maxLength={500} placeholder="A mark, sticker, engraving, or item inside" />
+        <input name="secret_detail" required maxLength={500} value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="A mark, sticker, engraving, or item inside" />
       </FormField>
-      <FormField label="Category"><select name="category">{CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></FormField>
+      <FormField label="Category"><select name="category" value={category} onChange={(e) => setCategory(e.target.value)}>{CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></FormField>
       <div className="field"><span>Where did you find it? *</span><CampusMap value={point} onChange={setPoint} /></div>
       <div className="form-grid"><FormField label="When"><input type="datetime-local" value={foundAt} onChange={(e) => setFoundAt(e.target.value)} required /></FormField><FormField label="Place note"><input name="location_note" maxLength={200} placeholder="Near the main entrance" /></FormField></div>
       <FormField label="Where is it now? *" hint="This stays private until a claim is approved."><input name="holding_location" required maxLength={200} placeholder="With me / Main library front desk" /></FormField>
       {error && <p className="error">{error}</p>}
-      <button className="button primary" disabled={busy}>{busy ? 'Posting item…' : 'Post found item'} <Icon name="arrow" size={18} /></button>
+      <button className="button primary" disabled={busy || draft === 'loading'}>{busy ? 'Posting item…' : 'Post found item'} <Icon name="arrow" size={18} /></button>
     </form>
   </section>
 }
