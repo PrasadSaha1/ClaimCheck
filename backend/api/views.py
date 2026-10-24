@@ -750,23 +750,18 @@ def claim_item(request, item_id):
 
     status = {'pass': 'approved', 'fail': 'rejected', 'unsure': 'pending'}[verdict]
 
-    claim = Claim.objects.create(item=item, claimant=user, report=report, answer=answer,
-
-                                 proof=proof, status=status, attempts=attempts + 1)
-
-    if status == 'approved':
-
-        item.status = report.status = 'handoff'
-
-        item.save(update_fields=['status'])
-
-        report.save(update_fields=['status'])
-
-        Notification.objects.create(user=item.finder, message=f'A claim passed for found item #{item.id}. Arrange a handoff.')
-
-    elif status == 'pending':
-
-        Notification.objects.create(user=item.finder, message=f'A claim needs your decision for found item #{item.id}.')
+    with transaction.atomic():
+        # Conditional update so two simultaneous passing claims can't both win the item.
+        if status == 'approved' and not FoundItem.objects.filter(pk=item.id, status='open').update(status='handoff'):
+            return error('This item was just claimed by someone else.', 409)
+        claim = Claim.objects.create(item=item, claimant=user, report=report, answer=answer,
+                                     proof=proof, status=status, attempts=attempts + 1)
+        if status == 'approved':
+            item.status = 'handoff'
+            LostReport.objects.filter(pk=report.id).update(status='handoff')
+            Notification.objects.create(user=item.finder, message=f'A claim passed for found item #{item.id}. Arrange a handoff.')
+        elif status == 'pending':
+            Notification.objects.create(user=item.finder, message=f'A claim needs your decision for found item #{item.id}.')
 
     return JsonResponse(claim_json(claim, user), status=201)
 
@@ -792,19 +787,17 @@ def claim_decision(request, claim_id):
 
     claim.status = 'approved' if approved else 'rejected'
 
-    claim.save(update_fields=['status'])
-
-    if approved:
-
-        claim.item.status = 'handoff'
-
-        claim.item.save(update_fields=['status'])
-
-        claim.report.status = 'handoff'
-
-        claim.report.save(update_fields=['status'])
-
-    Notification.objects.create(user=claim.claimant, message=f'Your claim for item #{claim.item_id} was {claim.status}.')
+    with transaction.atomic():
+        if not Claim.objects.filter(pk=claim.id, status='pending').update(status=claim.status):
+            return error('This claim was already decided.', 409)
+        if approved:
+            if not FoundItem.objects.filter(pk=claim.item_id, status='open').update(status='handoff'):
+                transaction.set_rollback(True)
+                return error('This item is no longer open.', 409)
+            claim.item.status = 'handoff'
+            if claim.report_id:  # the owner may have deleted their lost report
+                LostReport.objects.filter(pk=claim.report_id).update(status='handoff')
+        Notification.objects.create(user=claim.claimant, message=f'Your claim for item #{claim.item_id} was {claim.status}.')
 
     return JsonResponse(claim_json(claim, user))
 
