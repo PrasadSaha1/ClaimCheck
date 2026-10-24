@@ -668,6 +668,24 @@ def found(request):
     return JsonResponse(item_json(item, user), status=201)
 
 
+def found_draft(request):
+    # Snap-to-post: Gemini drafts the form from photos. Nothing is saved here.
+    user = user_for(request)
+    if not user:
+        return error('Please log in first.', 401)
+    if request.method != 'POST':
+        return error('Method not allowed.', 405)
+    try:
+        files = request.FILES.getlist('photos')
+        validate_photos(files, required=True)
+    except ValueError as exc:
+        return error(str(exc))
+    draft = ai.draft_found(normalized_photos(files), CATEGORIES)
+    if not draft:
+        return error('Could not draft from these photos. Fill in the details below.', 503)
+    return JsonResponse(draft)
+
+
 
 
 
