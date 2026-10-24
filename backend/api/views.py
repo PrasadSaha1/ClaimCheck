@@ -260,9 +260,17 @@ TIME_GRACE = timedelta(hours=1)
 
 
 
+FILLER = {'the', 'and', 'with', 'has', 'have', 'had', 'for', 'from', 'near', 'one', 'some', 'very', 'this',
+          'that', 'its', 'was', 'are', 'were', 'lost', 'found', 'item', 'left', 'color', 'colored', 'size',
+          'small', 'large', 'big', 'little', 'black', 'white', 'gray', 'grey', 'blue', 'red', 'green',
+          'yellow', 'brown', 'pink', 'purple', 'orange', 'dark', 'light', 'campus', 'room', 'floor'}
+
+
 def words(text):
 
-    return set(re.findall(r'[a-z0-9]{3,}', text.lower()))
+    """Distinctive words only. Filler and bare colors alone say nothing about which item it is."""
+
+    return set(re.findall(r'[a-z0-9]{3,}', text.lower())) - FILLER
 
 
 
@@ -294,9 +302,17 @@ def match_parts(report, item):
 
     keyword = min(1, len(shared) / max(1, min(len(words(report.description)), 5)))
 
-    text = max(keyword, ai.similarity(report.embedding, item.embedding))
+    semantic = ai.similarity(report.embedding, item.embedding)
+
+    text = max(keyword, semantic)
 
     if text < .18:
+
+        return None
+
+    # A sweater is not a laptop: different categories only match when the descriptions clearly agree.
+
+    if report.category != item.category and 'Other' not in (report.category, item.category) and max(keyword * .8, semantic) < .7:
 
         return None
 
@@ -348,9 +364,10 @@ def matches_for(report):
 
             continue
 
-        # Strong needs more than similar descriptions: time and place must fit, and photos must not disagree.
+        # Strong needs the descriptions themselves to agree, not just a nearby place and time, and photos must not disagree.
 
-        strong = score >= .68 and parts['time'] >= .5 and parts['location'] >= .5 and (photo is None or photo >= .3)
+        strong = (score >= .68 and parts['text'] >= .5 and parts['category'] and parts['time'] >= .5
+                  and parts['location'] >= .5 and (photo is None or photo >= .3))
 
         matches.append({'item': item_json(item, report.owner), 'score': round(score, 3),
 
