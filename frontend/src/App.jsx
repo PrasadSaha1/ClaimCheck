@@ -114,7 +114,7 @@ function SignIn({ onSignIn, onSignUp, busy, message, onClearMessage }) {
 
               <label>
                 Email
-                <small>Must be Stony Brook email</small>
+                <small>Any email for now (change to SBU only later)</small>
                 <input
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -137,8 +137,12 @@ function SignIn({ onSignIn, onSignUp, busy, message, onClearMessage }) {
             </>
           )}
 
-          {message && <p className="error">{message}</p>}
 
+            {message && (
+              <p className={message.startsWith("Check") ? "success" : "error"}>
+                {message}
+              </p>
+            )}
           <button
             type="submit"
             className="button primary full"

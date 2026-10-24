@@ -20,3 +20,7 @@
 .toggle-button:hover {
   text-decoration: underline;
 }
+
+.success {
+  color: green;
+}

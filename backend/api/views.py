@@ -395,7 +395,7 @@ def signup(request):
 
     return JsonResponse(
         {
-            "message": "Check your Stony Brook email to verify your account.",
+            "message": "Check your email to verify your account.",
             "verification_required": True,
         },
         status=201,
