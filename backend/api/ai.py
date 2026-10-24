@@ -33,7 +33,7 @@ def _generate(prompt, photos=()):
         parts.append({'inline_data': {'mime_type': photo.content_type,
                                       'data': base64.b64encode(photo.read()).decode()}})
         photo.seek(0)
-    result = _call(os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash-lite'), 'generateContent', {
+    result = _call(os.environ.get('GEMINI_MODEL', 'gemini-3.5-flash-lite'), 'generateContent', {
         'contents': [{'parts': parts}],
         'generationConfig': {'responseMimeType': 'application/json', 'temperature': 0},
     })
