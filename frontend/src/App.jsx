@@ -23,26 +23,165 @@ function Icon({ name, size = 22 }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
 }
 
-function SignIn({ onSignIn, busy, message }) {
+
+function SignIn({ onSignIn, onSignUp, busy, message, onClearMessage }) {
+  const [isSignUp, setIsSignUp] = useState(false)
   const [name, setName] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [email, setEmail] = useState('')
-  return <div className="sign-in-shell">
-    <div className="sign-in-card">
-      <span className="brand-mark"><Icon name="box" size={28} /></span>
-      <span className="eyebrow">STONY BROOK · LOST & FOUND</span>
-      <h1>Good things find<br /><em>their way back.</em></h1>
-      <p>Report what you lost or found. ClaimCheck helps the right person reconnect with it.</p>
-      <form onSubmit={(event) => { event.preventDefault(); onSignIn({ name, email }) }}>
-        <label>Your name<input value={name} onChange={(e) => setName(e.target.value)} required placeholder="e.g. Nish" maxLength={80} /></label>
-        <label>Email <small>optional for demo</small><input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="you@example.com" /></label>
-        {message && <p className="error">{message}</p>}
-        <button className="button primary full" disabled={busy}>Enter demo <Icon name="arrow" size={18} /></button>
-      </form>
-      <p className="demo-note">Demo mode · Use another browser or private window for a second person.</p>
+  const [phone, setPhone] = useState('')
+
+  const handleSubmit = (event) => {
+    event.preventDefault()
+
+    if (isSignUp) {
+      /* Handled in backend
+      if (password !== confirmPassword) {
+        alert("Passwords do not match!")
+        return
+      } */
+
+      onSignUp({
+        name,
+        password,
+        confirm_password: confirmPassword,
+        email,
+        phone
+      })
+    } else {
+      onSignIn({
+        name,
+        password
+      })
+    }
+  }
+
+  return (
+    <div className="sign-in-shell">
+      <div className="sign-in-card">
+        <span className="brand-mark">
+          <Icon name="box" size={28} />
+        </span>
+
+        <span className="eyebrow">
+          STONY BROOK · LOST & FOUND
+        </span>
+
+        <h1>
+          Good things find<br />
+          <em>their way back.</em>
+        </h1>
+
+        <p>
+          Report what you lost or found. ClaimCheck helps
+          the right person reconnect with it.
+        </p>
+
+        <form onSubmit={handleSubmit}>
+          <label>
+            Username
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              placeholder="e.g. Nish"
+              maxLength={80}
+            />
+          </label>
+
+          <label>
+            Password
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          </label>
+
+          {isSignUp && (
+            <>
+              <label>
+                Confirm Password
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                />
+              </label>
+
+              <label>
+                Email
+                <small>Must be Stony Brook email</small>
+                <input
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  type="email"
+                  placeholder="you@stonybrook.edu"
+                  required
+                />
+              </label>
+
+              <label>
+                Phone Number
+                <input
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  type="tel"
+                  pattern="[0-9]{3}-[0-9]{3}-[0-9]{4}"
+                  placeholder="123-456-7890"
+                />
+              </label>
+            </>
+          )}
+
+          {message && <p className="error">{message}</p>}
+
+          <button
+            type="submit"
+            className="button primary full"
+            disabled={busy}
+          >
+            {busy
+              ? "Please wait..."
+              : isSignUp ? "Sign Up" : "Log In"}
+            <Icon name="arrow" size={18} />
+          </button>
+        </form>
+
+        <p className="auth-toggle">
+          {isSignUp
+            ? "Already have an account?"
+            : "Don't have an account?"}
+
+          {' '}
+          <button
+            type="button"
+            className="toggle-button"
+            onClick={() => {
+              setIsSignUp(!isSignUp)
+              onClearMessage()
+            }}
+          >
+            {isSignUp ? "Log In" : "Sign Up"}
+          </button>
+        </p>
+      </div>
+
+      <div className="sign-in-art">
+        <div className="orbit orbit-one" />
+        <div className="orbit orbit-two" />
+        <div className="art-ticket">
+          FOUND<br /><span>01 / 01</span>
+        </div>
+        <p>Less searching.<br />More finding.</p>
+      </div>
     </div>
-    <div className="sign-in-art"><div className="orbit orbit-one" /><div className="orbit orbit-two" /><div className="art-ticket">FOUND<br /><span>01 / 01</span></div><p>Less searching.<br />More finding.</p></div>
-  </div>
+  )
 }
+
 
 function ImageStrip({ photos = [] }) {
   if (!photos.length) return null
@@ -203,8 +342,21 @@ export default function App() {
   async function reload() { setDashboard(await api('/dashboard/')) }
   useEffect(() => { api('/session/').then(async (session) => { setUser(session.user); if (session.user) await reload() }).catch((e) => setMessage(e.message)).finally(() => setLoading(false)) }, [])
   async function signIn(values) {
-    try { setBusy(true); setMessage(''); const result = await api('/session/', { method: 'POST', body: values }); setUser(result.user); await reload() }
+    try { setBusy(true); setMessage(''); const result = await api('/login/', { method: 'POST', body: values }); setUser(result.user); await reload() }
     catch (e) { setMessage(e.message) } finally { setBusy(false) }
+  }
+  async function signUp(values) {
+    try {
+      setBusy(true)
+      setMessage('')
+      const result = await api('/signup/', { method: 'POST', body: values })
+      setUser(result.user)
+      await reload()
+    } catch (e) {
+      setMessage(e.message)
+    } finally {
+      setBusy(false)
+    }
   }
   async function submit(form, kind) {
     setBusy(true)
@@ -225,7 +377,17 @@ export default function App() {
   }
   function home() { setView('home'); setSelected(null); setDetail(null); reload() }
   if (loading) return <div className="loading">ClaimCheck <span>●</span></div>
-  if (!user) return <SignIn onSignIn={signIn} busy={busy} message={message} />
+if (!user) {
+  return (
+    <SignIn
+      onSignIn={signIn}
+      onSignUp={signUp}
+      busy={busy}
+      message={message}
+        onClearMessage={() => setMessage('')}
+    />
+  )
+}
   const unread = dashboard.notifications.filter((n) => !n.read).length
   return <div className="app-shell">
     <header className="topbar"><div className="topbar-inner"><button className="brand" onClick={home}><span className="brand-mark"><Icon name="box" size={23} /></span><span>ClaimCheck</span></button>
@@ -245,7 +407,7 @@ export default function App() {
     {view === 'found-form' && <FoundForm submit={submit} busy={busy} goBack={home} />}
     {view === 'detail' && <Detail key={selected?.kind + selected?.id} selected={selected} data={detail} reportId={reportId} reload={reload} goBack={home} busy={busy} setBusy={setBusy} />}
     {view === 'notifications' && <main className="content narrow"><button className="back-link" onClick={home}>← Back to home</button><div className="page-heading"><span className="eyebrow">YOUR UPDATES</span><h1>Inbox</h1></div><button className="text-button" onClick={async () => { await api('/notifications/read/', { method: 'POST' }); reload() }}>Mark all read</button><div className="list">{dashboard.notifications.length ? dashboard.notifications.map((n) => <div className="notice-card" key={n.id}><span className={'notice-dot ' + (n.read ? 'muted' : '')} /><p>{n.message}</p></div>) : <div className="empty-state"><Icon name="bell" size={30} /><h3>All caught up</h3><p>New match and claim updates will land here.</p></div>}</div></main>}
-    {view === 'profile' && <main className="content narrow"><button className="back-link" onClick={home}>← Back to home</button><div className="page-heading"><span className="eyebrow">ACCOUNT</span><h1>Your profile</h1><p>Contact details appear to the other person only after a claim is approved.</p></div><form className="form-card" onSubmit={async (e) => { e.preventDefault(); try { const result = await api('/profile/', { method: 'PATCH', body: { phone: e.currentTarget.phone.value } }); setUser(result); setMessage('Profile saved.') } catch (err) { setMessage(err.message) } }}><FormField label="Name"><input value={user.name} readOnly /></FormField><FormField label="Email"><input value={user.email} readOnly placeholder="Not provided" /></FormField><FormField label="Phone (optional)"><input name="phone" defaultValue={user.phone} type="tel" placeholder="Add a number for handoffs" /></FormField><button className="button primary">Save profile</button></form><button className="text-button sign-out" onClick={async () => { await api('/session/', { method: 'DELETE' }); setUser(null); setView('home') }}>Leave demo</button></main>}
+    {view === 'profile' && <main className="content narrow"><button className="back-link" onClick={home}>← Back to home</button><div className="page-heading"><span className="eyebrow">ACCOUNT</span><h1>Your profile</h1><p>Contact details appear to the other person only after a claim is approved.</p></div><form className="form-card" onSubmit={async (e) => { e.preventDefault(); try { const result = await api('/profile/', { method: 'PATCH', body: { phone: e.currentTarget.phone.value } }); setUser(result); setMessage('Profile saved.') } catch (err) { setMessage(err.message) } }}><FormField label="Name"><input value={user.name} readOnly /></FormField><FormField label="Email"><input value={user.email} readOnly placeholder="Not provided" /></FormField><FormField label="Phone"><input name="phone" defaultValue={user.phone} type="tel" placeholder="Add a number for handoffs" /></FormField><button className="button primary">Save profile</button></form><button className="text-button sign-out" onClick={async () => { await api('/session/', { method: 'DELETE' }); setUser(null); setView('home') }}>Log out</button></main>}
     <footer className="footer">ClaimCheck · Made for the Stony Brook community <span>© OpenStreetMap contributors</span></footer>
   </div>
 }

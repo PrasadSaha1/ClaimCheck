@@ -2,9 +2,10 @@ from django.db import models
 
 
 class DemoUser(models.Model):
-    name = models.CharField(max_length=80)
-    email = models.EmailField(blank=True)
+    name = models.CharField(max_length=80, unique=True)
+    email = models.EmailField(unique=True)
     phone = models.CharField(max_length=30, blank=True)
+    password_hash = models.CharField(max_length=128)
 
 
 class LostReport(models.Model):
