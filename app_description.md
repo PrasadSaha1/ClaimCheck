@@ -1,5 +1,5 @@
 What it is
-ClaimCheck is a verified return network for public places: campuses, airports, and transit stations. Each place runs its own lost and found with its own map and drop-off desks. AI matches found items to lost reports, and an item only goes back to someone who can prove they own it. The demo has three places: Stony Brook University, JFK Airport, and Penn Station. Adding another is one entry in backend/api/sites.py.
+ClaimCheck is a verified return network for public places: campuses, airports, and transit stations. Each place runs its own lost and found with its own map and drop-off desks. AI matches found items to lost reports, and an item only goes back to someone who can prove they own it. The demo has five places: Stony Brook University, JFK Airport, LaGuardia Airport, Penn Station, and Grand Central Terminal. Adding another is one entry in backend/api/sites.py.
 Choosing a place
 The home screen has a Location picker. The map, the drop-off desk suggestions, and the impact numbers all follow the chosen place, and the app remembers the choice. Lost reports and found items belong to the place they were posted in, and items from different places never match.
 Signing in

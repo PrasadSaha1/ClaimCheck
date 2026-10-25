@@ -1,6 +1,6 @@
 # ClaimCheck
 
-A Stony Brook lost-and-found PWA demo. People can post found items, report lost items, see ranked matches, claim an item, and arrange a handoff. Django stores data in SQLite and serves a same-origin API through Vite's local proxy.
+A verified lost-and-found PWA for campuses, airports, and stations (demo places: Stony Brook, JFK Airport, LaGuardia Airport, Penn Station, Grand Central Terminal). People can post found items, report lost items, see ranked matches, claim an item, and arrange a handoff. Django stores data in a shared TigerData Postgres database and serves a same-origin API through Vite's local proxy.
 
 ## Run locally
 
@@ -15,6 +15,17 @@ cp .env.example .env
 .venv/bin/python manage.py migrate
 .venv/bin/python manage.py runserver
 ```
+
+After the first setup, starting the backend is just `.venv/bin/python manage.py runserver`.
+
+### When to run `migrate`
+
+`migrate` updates the database's tables to match `backend/api/models.py`. It is **not** needed every time you start the app. Run it only:
+
+- the first time you set up a database
+- after you pull or add a new file in `backend/api/migrations/`
+
+Running it with nothing new is harmless; it prints "No migrations to apply." The team shares one database, so one person running it is enough. Everyone else just pulls the code.
 
 In a second terminal:
 
