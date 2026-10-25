@@ -381,7 +381,7 @@ def matches_for(report):
 
         if photo is not None and photo < .15:
 
-            continue  # Gemini compared the photos and they show clearly different items.
+            continue  # Gemini compared the photos or descriptions and they are clearly different items.
 
         score = match_score(parts, photo)
 
@@ -432,15 +432,22 @@ def candidate_pairs(reports, items):
 
 def ai_photos(photos):
 
-    # Stored photos are already normalized JPEGs.
+    # Stored photos are already normalized JPEGs. Photos are saved on the computer that uploaded them,
+    # so with a shared database some files may not exist here; those are skipped.
 
     files = []
 
     for photo in photos[:ai.MAX_AI_PHOTOS]:
 
-        with photo.image.open('rb') as file:
+        try:
 
-            files.append(SimpleUploadedFile('item.jpg', file.read(), content_type='image/jpeg'))
+            with photo.image.open('rb') as file:
+
+                files.append(SimpleUploadedFile('item.jpg', file.read(), content_type='image/jpeg'))
+
+        except OSError:
+
+            continue
 
     return files
 
@@ -452,23 +459,33 @@ def ai_photos(photos):
 
 def score_photos(pairs, limit=5):
 
-    """Have Gemini compare photos for the most promising new pairs, once per pair."""
+    """Have Gemini judge the most promising new pairs, once per pair: by photos when both sides have them,
+    otherwise by description, so a laptop never matches a smartwatch just for sharing a category."""
 
     pairs = [(report, item) for _, report, item in sorted(pairs, key=lambda p: p[0], reverse=True)
 
-             if report.photos.exists() and item.photos.exists()
-
-             and not MatchScore.objects.filter(report=report, item=item).exists()][:limit]
+             if not MatchScore.objects.filter(report=report, item=item).exists()][:limit]
 
     if not pairs:
 
         return
 
-    inputs = [(ai_photos(report.photos.all()), ai_photos(item.photos.all())) for report, item in pairs]
+    inputs = [(report.description, f'{item.description} {item.public_description}',
+               ai_photos(report.photos.all()), ai_photos(item.photos.all())) for report, item in pairs]
+
+    def judge(args):
+
+        lost_text, found_text, lost_photos, found_photos = args
+
+        if lost_photos and found_photos:
+
+            return ai.compare_photos(lost_photos, found_photos)
+
+        return ai.compare_descriptions(lost_text, found_text)
 
     with ThreadPoolExecutor(max_workers=limit) as pool:
 
-        results = list(pool.map(lambda photos: ai.compare_photos(*photos), inputs))
+        results = list(pool.map(judge, inputs))
 
     for (report, item), score in zip(pairs, results):
 
@@ -1043,6 +1060,12 @@ def lost_detail(request, report_id):
 
     if request.method == 'GET':
 
+        if report.status == 'open':
+
+            # Catch pairs Gemini has not judged yet, like items posted before this check existed. Each pair runs once.
+
+            score_photos(candidate_pairs([report], FoundItem.objects.filter(status='open', site=report.site)))
+
         return JsonResponse({'report': lost_json(report), 'matches': matches_for(report)})
 
     if request.method == 'DELETE' and report.status == 'open':
@@ -1127,7 +1150,13 @@ def photo(request, photo_id):
 
         return error('Photo unavailable.', 404)
 
-    return FileResponse(p.image.open('rb'), content_type='image/jpeg')
+    try:
+
+        return FileResponse(p.image.open('rb'), content_type='image/jpeg')
+
+    except OSError:
+
+        return error('Photo unavailable.', 404)  # Uploaded from another computer.
 
 
 
