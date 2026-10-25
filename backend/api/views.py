@@ -480,6 +480,29 @@ def score_photos(pairs, limit=5):
 
 
 
+DONATE_AFTER = timedelta(days=30)
+
+
+
+
+
+def donate_unclaimed():
+
+    """Open items nobody claimed within 30 days go to donation instead of waiting in matches forever."""
+
+    stale = (FoundItem.objects.filter(status='open', found_at__lt=timezone.now() - DONATE_AFTER)
+             .exclude(claims__status='pending'))
+
+    for item in stale:
+
+        if FoundItem.objects.filter(pk=item.pk, status='open').update(status='donated'):
+
+            Notification.objects.create(user=item.finder, message=f'Found item #{item.id} went unclaimed for 30 days and is marked for donation.')
+
+
+
+
+
 def notify_matches(report):
 
     for match in matches_for(report):
@@ -730,6 +753,8 @@ def dashboard(request):
 
         return error('Method not allowed.', 405)
 
+    donate_unclaimed()
+
     claims = Claim.objects.filter(claimant=user, hidden_by_claimant=False) | Claim.objects.filter(item__finder=user, hidden_by_finder=False)
 
     return JsonResponse({
@@ -743,6 +768,34 @@ def dashboard(request):
         'notifications': [{'id': n.id, 'message': n.message, 'read': n.read} for n in user.notifications.filter(hidden=False).order_by('-created_at')[:30]],
 
     })
+
+
+
+
+
+def impact_counts(**item_filter):
+
+    items = FoundItem.objects.filter(**item_filter)
+
+    return {'returned': items.filter(status='returned').count(),
+            'donated': items.filter(status='donated').count(),
+            # Claims that failed the ownership check or that the finder turned down.
+            'blocked': Claim.objects.filter(status='rejected', item__in=items).count()}
+
+
+def impact(request):
+
+    if not user_for(request):
+
+        return error('Please log in first.', 401)
+
+    if request.method != 'GET':
+
+        return error('Method not allowed.', 405)
+
+    donate_unclaimed()
+
+    return JsonResponse({'network': impact_counts(), 'sites': {s: impact_counts(site=s) for s in SITES}})
 
 
 
@@ -884,7 +937,7 @@ def found(request):
 
 
 def clear_reports(request):
-    # Open posts are deleted. Returned ones are only hidden, since the other person's claim history points to them.
+    # Open posts are deleted. Returned and donated ones are only hidden, since claim history and impact counts point to them.
     # Handoffs in progress stay, because someone is still waiting on them.
     user = user_for(request)
     if not user:
@@ -894,7 +947,7 @@ def clear_reports(request):
     deleted = user.lost_reports.filter(status='open').delete()[1].get('api.LostReport', 0)
     deleted += user.found_items.filter(status='open').delete()[1].get('api.FoundItem', 0)
     hidden = user.lost_reports.filter(status='returned', hidden=False).update(hidden=True)
-    hidden += user.found_items.filter(status='returned', hidden=False).update(hidden=True)
+    hidden += user.found_items.filter(status__in=('returned', 'donated'), hidden=False).update(hidden=True)
     kept = user.lost_reports.filter(hidden=False).count() + user.found_items.filter(hidden=False).count()
     return JsonResponse({'deleted': deleted, 'hidden': hidden, 'kept': kept})
 

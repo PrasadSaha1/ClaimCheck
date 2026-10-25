@@ -114,6 +114,20 @@ class ReportFlowTests(TestCase):
         })
         self.assertEqual(outside.status_code, 400)
 
+    def test_unclaimed_item_is_donated_after_30_days(self):
+        old = self.finder.post('/api/found/', {
+            'photos': image(), 'description': 'grey scarf', 'secret_detail': 'name tag inside',
+            'category': 'Clothing', 'latitude': '40.9126', 'longitude': '-73.1232',
+            'found_at': (self.now - timedelta(days=31)).isoformat(), 'holding_location': 'Library desk',
+        }).json()
+        recent_id = self.found().json()['id']
+        self.finder.get('/api/dashboard/')
+        self.assertEqual(FoundItem.objects.get(pk=old['id']).status, 'donated')
+        self.assertEqual(FoundItem.objects.get(pk=recent_id).status, 'open')
+        counts = self.owner.get('/api/impact/').json()
+        self.assertEqual(counts['sites']['stony-brook']['donated'], 1)
+        self.assertEqual(counts['sites']['jfk']['donated'], 0)
+
     @patch('api.ai.verify', return_value='fail')
     def test_two_failed_answers_then_manual_request(self, _verify):
         item_id = self.found().json()['id']
