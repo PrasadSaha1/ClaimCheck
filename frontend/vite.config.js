@@ -10,9 +10,9 @@ export default defineConfig({
       manifest: {
         name: 'ClaimCheck',
         short_name: 'ClaimCheck',
-        description: 'ClaimCheck app',
-        theme_color: '#0a455e',
-        background_color: '#f7faf9',
+        description: 'Verified lost & found for campuses, airports, and stations.',
+        theme_color: '#1f3a2e',
+        background_color: '#1f3a2e', // splash screen while the installed app opens, matches the sign-in screen
         display: 'standalone',
         start_url: '/',
         icons: [
@@ -31,6 +31,9 @@ export default defineConfig({
     }),
   ],
   server: {
-    proxy: { '/api': 'http://127.0.0.1:8000' }, // avoids CORS in dev
+    // changeOrigin sends Django a Host it already allows, even when the page is opened through a phone tunnel.
+    proxy: { '/api': { target: 'http://127.0.0.1:8000', changeOrigin: true } }, // avoids CORS in dev
+    // Tunnels for testing on a phone over HTTPS (see README): Cloudflare quick tunnels and ngrok's permanent free domain.
+    allowedHosts: ['.trycloudflare.com', '.ngrok-free.app', '.ngrok-free.dev'],
   },
 })

@@ -36,7 +36,9 @@ if not DEBUG and SECRET_KEY.startswith('django-insecure-'):
 
 ALLOWED_HOSTS = os.environ.get('DJANGO_ALLOWED_HOSTS', '127.0.0.1,localhost').split(',')
 CSRF_TRUSTED_ORIGINS = os.environ.get(
-    'DJANGO_CSRF_TRUSTED_ORIGINS', 'http://127.0.0.1:5173,http://localhost:5173'
+    # The tunnel entries let a phone use the app over HTTPS through Cloudflare or ngrok (see README).
+    'DJANGO_CSRF_TRUSTED_ORIGINS',
+    'http://127.0.0.1:5173,http://localhost:5173,https://*.trycloudflare.com,https://*.ngrok-free.app,https://*.ngrok-free.dev'
 ).split(',')
 
 

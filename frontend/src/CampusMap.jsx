@@ -9,7 +9,7 @@ const inside = (site, lat, lng) => {
 
 export { inside }
 
-export default function CampusMap({ site, value, onChange, radius = 0 }) {
+export default function CampusMap({ site, value, onChange, radius = 0, readOnly = false }) {
   const root = useRef(null)
   const mapRef = useRef(null)
   const markerRef = useRef(null)
@@ -21,7 +21,8 @@ export default function CampusMap({ site, value, onChange, radius = 0 }) {
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19, attribution: '&copy; OpenStreetMap contributors',
     }).addTo(map)
-    map.on('click', (event) => {
+    if (readOnly && value) map.setView([value.latitude, value.longitude], site.zoom + 1)
+    else map.on('click', (event) => {
       const { lat, lng } = event.latlng
       if (inside(site, lat, lng)) {
         onChange({ latitude: Number(lat.toFixed(6)), longitude: Number(lng.toFixed(6)) })
@@ -29,7 +30,7 @@ export default function CampusMap({ site, value, onChange, radius = 0 }) {
     })
     setTimeout(() => map.invalidateSize(), 0)
     return () => { map.remove(); mapRef.current = null }
-  }, [onChange, site])
+  }, [onChange, site, readOnly]) // value only sets the first view of a read-only map
 
   useEffect(() => {
     const map = mapRef.current
@@ -50,6 +51,6 @@ export default function CampusMap({ site, value, onChange, radius = 0 }) {
 
   return <div className="map-wrap">
     <div ref={root} className="campus-map" role="application" aria-label={site.name + ' map'} />
-    <span className="map-hint">Tap the map to {radius ? 'center your lost area' : 'pin where you found it'}</span>
+    {!readOnly && <span className="map-hint">Tap the map to {radius ? 'center your lost area' : 'pin where you found it'}</span>}
   </div>
 }

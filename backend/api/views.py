@@ -29,6 +29,10 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
+from pillow_heif import register_heif_opener
+
+register_heif_opener()  # iPhone photos are often HEIC
+
 
 
 from . import ai
@@ -144,9 +148,11 @@ def validate_photos(files, required=False):
 
     for file in files:
 
-        if file.size > 5 * 1024 * 1024:
+        # Full-size phone photos are often over 5 MB; every photo is shrunk to 1600 px when saved anyway.
 
-            raise ValueError('Each photo must be under 5 MB.')
+        if file.size > 15 * 1024 * 1024:
+
+            raise ValueError('Each photo must be under 15 MB.')
 
         try:
 
@@ -154,9 +160,11 @@ def validate_photos(files, required=False):
 
             image.verify()
 
-            if image.format not in ('JPEG', 'PNG', 'WEBP'):
+            # MPO is how Pillow names the JPEGs iPhones save with depth or HDR data.
 
-                raise ValueError('Use JPG, PNG, or WebP photos.')
+            if image.format not in ('JPEG', 'MPO', 'PNG', 'WEBP', 'HEIF'):
+
+                raise ValueError('Use JPG, PNG, WebP, or HEIC photos.')
 
             file.seek(0)
 
@@ -198,7 +206,7 @@ def photos_for(item, viewer):
 
     own = viewer and item.finder_id == viewer.id
 
-    return [{'id': p.id, 'url': f'/api/photos/{p.id}/'} for p in item.photos.all() if own or p.public]
+    return [{'id': p.id, 'url': f'/api/photos/{p.id}/', 'public': p.public} for p in item.photos.all() if own or p.public]
 
 
 
@@ -497,6 +505,24 @@ def score_photos(pairs, limit=5):
 
 
 
+NOTIFICATION_KINDS = ('match', 'posted', 'decision', 'claim_passed', 'claim_result', 'returned', 'donated')
+
+
+
+
+
+def notify(user, kind, message):
+
+    """Every in-app notification goes through here, so a kind the user turned off in their profile is skipped."""
+
+    if kind not in user.muted_notifications:
+
+        Notification.objects.create(user=user, message=message)
+
+
+
+
+
 DONATE_AFTER = timedelta(days=30)
 
 
@@ -514,7 +540,7 @@ def donate_unclaimed():
 
         if FoundItem.objects.filter(pk=item.pk, status='open').update(status='donated'):
 
-            Notification.objects.create(user=item.finder, message=f'Found item #{item.id} went unclaimed for 30 days and is marked for donation.')
+            notify(item.finder, 'donated', f'Found item #{item.id} went unclaimed for 30 days and is marked for donation.')
 
 
 
@@ -532,14 +558,27 @@ def notify_matches(report):
 
         if not Notification.objects.filter(user=report.owner, message=message).exists():
 
-            Notification.objects.create(user=report.owner, message=message)
+            notify(report.owner, 'match', message)
 
 
 
+
+
+DEV_ORIGIN = 'http://localhost:5173'
+
+# Where the app may be opened: the laptop, or a phone through a Cloudflare or ngrok tunnel (see README).
+APP_ORIGIN = re.compile(r'http://(localhost|127\.0\.0\.1):\d+|https://[\w-]+\.(ngrok-free\.(app|dev)|trycloudflare\.com)')
+
+
+def app_origin(request):
+    """The address the person opened the app at, so email links send them back there instead of to the laptop."""
+    origin = request.headers.get('Origin', '')
+    return origin if APP_ORIGIN.fullmatch(origin) else DEV_ORIGIN
 
 
 def user_json(user):
-    return {'id': user.id, 'name': user.name, 'email': user.email, 'phone': user.phone}
+    return {'id': user.id, 'name': user.name, 'email': user.email, 'phone': user.phone,
+            'notifications': {kind: kind not in user.muted_notifications for kind in NOTIFICATION_KINDS}}
 
 
 @ensure_csrf_cookie
@@ -581,6 +620,8 @@ def signup(request):
     # if not re.fullmatch(r'[^@\s]+@stonybrook\.edu', email):
     #    return error('Email must be a valid Stony Brook email address.')
     
+    if not email or not phone:
+        return error('Email and phone number are required.')
     if len(email) > 254 or len(phone) > 30:
         return error('Email or phone number is too long.')
     if DemoUser.objects.filter(name=name).exists():
@@ -598,18 +639,20 @@ def signup(request):
         email_verified=False,
     )
 
+    origin = app_origin(request)
+
     token = signing.dumps(
         {
             "user_id": user.id,
             "email": user.email,
             "password_hash": user.password_hash,
+            "origin": origin,
         },
         salt="claimcheck-email-verification",
     )
 
-    verification_url = request.build_absolute_uri(
-        reverse("verify_email") + "?token=" + token
-    )
+    # Through the app's own address (and its /api proxy), so the link also works on a phone using a tunnel.
+    verification_url = origin + reverse("verify_email") + "?token=" + token
 
     try:
         send_mail(
@@ -674,8 +717,9 @@ def verify_email(request):
         user.email_verified = True
         user.save(update_fields=["email_verified"])
 
+    origin = data.get("origin", DEV_ORIGIN)  # links sent before origins were saved go to the laptop
     return HttpResponseRedirect(
-        "http://localhost:5173/?verified=1"
+        (origin if APP_ORIGIN.fullmatch(origin) else DEV_ORIGIN) + "/?verified=1"
     )
 
 def login_user(request):
@@ -712,11 +756,32 @@ def profile(request):
 
         return error('Method not allowed.', 405)
 
-    user.phone = str(payload(request).get('phone', '')).strip()[:30]
+    # Each field is optional, so a notification switch can save without resending the phone number.
 
-    user.save(update_fields=['phone'])
+    data = payload(request)
 
-    return JsonResponse({'id': user.id, 'name': user.name, 'email': user.email, 'phone': user.phone})
+    fields = []
+
+    if 'phone' in data:
+
+        user.phone = str(data['phone']).strip()[:30]
+
+        fields.append('phone')
+
+    choices = data.get('notifications')
+
+    if isinstance(choices, dict):
+
+        user.muted_notifications = [kind for kind in NOTIFICATION_KINDS
+                                    if choices.get(kind, kind not in user.muted_notifications) is False]
+
+        fields.append('muted_notifications')
+
+    if fields:
+
+        user.save(update_fields=fields)
+
+    return JsonResponse(user_json(user))
 
 
 
@@ -782,7 +847,7 @@ def dashboard(request):
 
         'claims': [claim_json(c, user) for c in claims.distinct().order_by('-created_at')],
 
-        'notifications': [{'id': n.id, 'message': n.message, 'read': n.read} for n in user.notifications.filter(hidden=False).order_by('-created_at')[:30]],
+        'notifications': [{'id': n.id, 'message': n.message, 'read': n.read, 'created_at': n.created_at.isoformat()} for n in user.notifications.filter(hidden=False).order_by('-created_at')[:30]],
 
     })
 
@@ -872,6 +937,8 @@ def lost(request):
 
     score_photos(candidate_pairs([report], FoundItem.objects.filter(status='open', site=site)))
 
+    notify(user, 'posted', f"Your lost report #{report.id} is live. We'll tell you when a strong match comes in.")
+
     notify_matches(report)
 
     return JsonResponse(lost_json(report), status=201)
@@ -949,6 +1016,8 @@ def found(request):
     for report in reports:
 
         notify_matches(report)
+
+    notify(user, 'posted', f"Your found item #{item.id} is posted. We'll tell you when someone claims it.")
 
     return JsonResponse(item_json(item, user), status=201)
 
@@ -1244,9 +1313,9 @@ def claim_item(request, item_id):
         if status == 'approved':
             item.status = 'handoff'
             LostReport.objects.filter(pk=report.id).update(status='handoff')
-            Notification.objects.create(user=item.finder, message=f'A claim passed for found item #{item.id}. Arrange a handoff.')
+            notify(item.finder, 'claim_passed', f'A claim passed for found item #{item.id}. Arrange a handoff.')
         elif status == 'pending':
-            Notification.objects.create(user=item.finder, message=f'A claim needs your decision for found item #{item.id}.')
+            notify(item.finder, 'decision', f'A claim needs your decision for found item #{item.id}.')
 
     return JsonResponse(claim_json(claim, user), status=201)
 
@@ -1282,7 +1351,7 @@ def claim_decision(request, claim_id):
             claim.item.status = 'handoff'
             if claim.report_id:  # the owner may have deleted their lost report
                 LostReport.objects.filter(pk=claim.report_id).update(status='handoff')
-        Notification.objects.create(user=claim.claimant, message=f'Your claim for item #{claim.item_id} was {claim.status}.')
+        notify(claim.claimant, 'claim_result', f'Your claim for item #{claim.item_id} was {claim.status}.')
 
     return JsonResponse(claim_json(claim, user))
 
@@ -1318,7 +1387,7 @@ def return_item(request, item_id):
 
     other = claim.claimant if user.id == item.finder_id else item.finder
 
-    Notification.objects.create(user=other, message=f'Item #{item.id} was marked as returned.')
+    notify(other, 'returned', f'Item #{item.id} was marked as returned.')
 
     return JsonResponse(item_json(item, user))
 

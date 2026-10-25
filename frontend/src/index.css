@@ -1,3 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap');
-:root{font-family:'DM Sans',sans-serif;color:#17384e;background:#f7faf9;font-synthesis:none;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}
-*{box-sizing:border-box}body{margin:0;min-width:320px}button,input,select,textarea{font:inherit}button{cursor:pointer}button:disabled{cursor:wait;opacity:.65}h1,h2,h3,p{margin-top:0}h1,h2,h3{font-family:Manrope,sans-serif}a{color:inherit}
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Zilla+Slab:wght@600;700&display=swap');
+:root{--bg:#fff;--paper:#fbf7ee;--paper-2:#f3ecdd;--line:#e6dac3;--green:#1f3a2e;--green-2:#173025;--green-3:#2c5a43;--green-soft:#dcebd9;--gold:#c9a46b;--gold-1:#e4c793;--gold-2:#b8935c;--gold-text:#8b6a3c;--ink:#1e1d1a;--muted:#6c675d;--dark:#22201c;--cream:#f3ead8;--red:#a63b2b;--red-soft:#f5dfda;--serif:'Zilla Slab',Georgia,serif;--mono:'IBM Plex Mono',ui-monospace,monospace;
+  font-family:'IBM Plex Sans',system-ui,sans-serif;color:var(--ink);background:var(--bg);font-synthesis:none;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}
+*{box-sizing:border-box}body{margin:0;min-width:320px;background:var(--bg)}button,input,select,textarea{font:inherit;color:inherit}button{cursor:pointer}button:disabled{cursor:wait;opacity:.65}h1,h2,h3,p{margin:0}a{color:inherit}
+button:focus-visible,a:focus-visible,select:focus-visible,.photo-add:focus-within{outline:2px solid var(--gold-2);outline-offset:2px}
