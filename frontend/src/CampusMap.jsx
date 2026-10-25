@@ -2,30 +2,34 @@ import { useEffect, useRef } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
-const CENTER = [40.9126, -73.1232]
+const inside = (site, lat, lng) => {
+  const [[latMin, lngMin], [latMax, lngMax]] = site.bounds
+  return lat >= latMin && lat <= latMax && lng >= lngMin && lng <= lngMax
+}
 
-export default function CampusMap({ value, onChange, radius = 0 }) {
+export { inside }
+
+export default function CampusMap({ site, value, onChange, radius = 0 }) {
   const root = useRef(null)
   const mapRef = useRef(null)
   const markerRef = useRef(null)
   const circleRef = useRef(null)
 
   useEffect(() => {
-    if (mapRef.current) return
-    const map = L.map(root.current, { zoomControl: true }).setView(CENTER, 15)
+    const map = L.map(root.current, { zoomControl: true }).setView(site.center, site.zoom)
     mapRef.current = map
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19, attribution: '&copy; OpenStreetMap contributors',
     }).addTo(map)
     map.on('click', (event) => {
       const { lat, lng } = event.latlng
-      if (lat >= 40.86 && lat <= 40.94 && lng >= -73.15 && lng <= -73.06) {
+      if (inside(site, lat, lng)) {
         onChange({ latitude: Number(lat.toFixed(6)), longitude: Number(lng.toFixed(6)) })
       }
     })
     setTimeout(() => map.invalidateSize(), 0)
     return () => { map.remove(); mapRef.current = null }
-  }, [onChange])
+  }, [onChange, site])
 
   useEffect(() => {
     const map = mapRef.current
@@ -42,10 +46,10 @@ export default function CampusMap({ value, onChange, radius = 0 }) {
         radius: Number(radius), color: '#1685a1', fillColor: '#66c2d0', fillOpacity: .13,
       }).addTo(map)
     }
-  }, [value, radius])
+  }, [value, radius, site])
 
   return <div className="map-wrap">
-    <div ref={root} className="campus-map" role="application" aria-label="Stony Brook campus map" />
+    <div ref={root} className="campus-map" role="application" aria-label={site.name + ' map'} />
     <span className="map-hint">Tap the map to {radius ? 'center your lost area' : 'pin where you found it'}</span>
   </div>
 }

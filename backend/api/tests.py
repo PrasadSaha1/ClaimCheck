@@ -98,6 +98,22 @@ class ReportFlowTests(TestCase):
         }).json()['id']
         self.assertEqual(self.owner.get(f'/api/lost/{report_id}/').json()['matches'], [])
 
+    def test_items_at_another_place_never_match(self):
+        self.finder.post('/api/found/', {
+            'photos': image(), 'description': 'black water bottle with a yellow sticker',
+            'secret_detail': 'dent underneath', 'category': 'Other', 'site': 'jfk',
+            'latitude': '40.6413', 'longitude': '-73.7781',
+            'found_at': self.now.isoformat(), 'holding_location': 'Terminal 4 information desk',
+        })
+        report_id = self.lost().json()['id']
+        self.assertEqual(self.owner.get(f'/api/lost/{report_id}/').json()['matches'], [])
+        outside = self.finder.post('/api/found/', {
+            'photos': image(), 'description': 'umbrella', 'secret_detail': 'taped handle',
+            'category': 'Other', 'site': 'jfk', 'latitude': '40.9126', 'longitude': '-73.1232',
+            'found_at': self.now.isoformat(), 'holding_location': 'With me',
+        })
+        self.assertEqual(outside.status_code, 400)
+
     @patch('api.ai.verify', return_value='fail')
     def test_two_failed_answers_then_manual_request(self, _verify):
         item_id = self.found().json()['id']
