@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import CampusMap from './CampusMap'
+import CampusMap, { inside } from './CampusMap'
 import { api } from './api'
 import './App.css'
 
@@ -65,7 +65,7 @@ function SignIn({ onSignIn, onSignUp, busy, message, onClearMessage }) {
         </span>
 
         <span className="eyebrow">
-          STONY BROOK · LOST & FOUND
+          VERIFIED LOST & FOUND
         </span>
 
         <h1>
@@ -245,7 +245,7 @@ function DraftControls({ draft, photos, run }) {
   </>
 }
 
-function LostForm({ submit, busy, goBack }) {
+function LostForm({ site, submit, busy, goBack }) {
   const [point, setPoint] = useState(null)
   const [radius, setRadius] = useState(400)
   const [photos, setPhotos] = useState([])
@@ -262,6 +262,7 @@ function LostForm({ submit, busy, goBack }) {
     event.preventDefault()
     if (!point) { setError('Choose the area on the map.'); return }
     const form = new FormData(event.currentTarget)
+    form.set('site', site.id)
     form.set('latitude', point.latitude)
     form.set('longitude', point.longitude)
     form.set('radius_m', radius)
@@ -280,7 +281,7 @@ function LostForm({ submit, busy, goBack }) {
         <textarea name="description" rows={4} required maxLength={2000} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="A black water bottle with a yellow sticker..." />
       </FormField>
       <FormField label="Category"><select name="category" value={category} onChange={(e) => setCategory(e.target.value)}>{CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></FormField>
-      <div className="field"><span>Where might it be? *</span><p className="field-copy">Tap the map and adjust the rough search area.</p><CampusMap value={point} onChange={setPoint} radius={radius} />
+      <div className="field"><span>Where might it be? *</span><p className="field-copy">Tap the {site.short} map and adjust the rough search area.</p><CampusMap site={site} value={point} onChange={setPoint} radius={radius} />
         <div className="range-row"><span>Search radius</span><input type="range" min="50" max="1200" step="50" value={radius} onChange={(e) => setRadius(Number(e.target.value))} /><strong>{radius} m</strong></div>
       </div>
       <div className="form-grid"><FormField label="Lost after"><input type="datetime-local" value={after} onChange={(e) => setAfter(e.target.value)} required /></FormField><FormField label="Lost before"><input type="datetime-local" value={before} onChange={(e) => setBefore(e.target.value)} required /></FormField></div>
@@ -290,7 +291,7 @@ function LostForm({ submit, busy, goBack }) {
   </section>
 }
 
-function FoundForm({ submit, busy, goBack }) {
+function FoundForm({ site, submit, busy, goBack }) {
   const [point, setPoint] = useState(null)
   const [photos, setPhotos] = useState([])
   const [error, setError] = useState('')
@@ -308,16 +309,17 @@ function FoundForm({ submit, busy, goBack }) {
   useEffect(() => {
     navigator.geolocation?.getCurrentPosition(({ coords }) => {
       const { latitude, longitude } = coords
-      if (latitude >= 40.86 && latitude <= 40.94 && longitude >= -73.15 && longitude <= -73.06) {
+      if (inside(site, latitude, longitude)) {
         setPoint((current) => current || { latitude: Number(latitude.toFixed(6)), longitude: Number(longitude.toFixed(6)) })
       }
     }, () => {}, { timeout: 8000 })
-  }, [])
+  }, [site])
   async function onSubmit(event) {
     event.preventDefault()
     if (!photos.length) { setError('Add at least one photo.'); return }
     if (!point) { setError('Pin where you found the item.'); return }
     const form = new FormData(event.currentTarget)
+    form.set('site', site.id)
     form.set('latitude', point.latitude)
     form.set('longitude', point.longitude)
     form.set('found_at', new Date(foundAt).toISOString())
@@ -336,9 +338,10 @@ function FoundForm({ submit, busy, goBack }) {
       </FormField>
       {secretMissing && !secret && <p className="error">Gemini couldn't spot a private detail in the photos. Add one only the owner would know.</p>}
       <FormField label="Category"><select name="category" value={category} onChange={(e) => setCategory(e.target.value)}>{CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></FormField>
-      <div className="field"><span>Where did you find it? *</span><CampusMap value={point} onChange={setPoint} /></div>
+      <div className="field"><span>Where at {site.short} did you find it? *</span><CampusMap site={site} value={point} onChange={setPoint} /></div>
       <div className="form-grid"><FormField label="When"><input type="datetime-local" value={foundAt} onChange={(e) => setFoundAt(e.target.value)} required /></FormField><FormField label="Place note"><input name="location_note" maxLength={200} placeholder="Near the main entrance" /></FormField></div>
-      <FormField label="Where is it now? *" hint="This stays private until a claim is approved."><input name="holding_location" required maxLength={200} placeholder="With me / Main library front desk" /></FormField>
+      <FormField label="Where is it now? *" hint="This stays private until a claim is approved."><input name="holding_location" required maxLength={200} list="desks" placeholder={'With me / ' + site.desks[0]} />
+        <datalist id="desks"><option value="With me" />{site.desks.map((desk) => <option key={desk} value={desk} />)}</datalist></FormField>
       {error && <p className="error">{error}</p>}
       <button className="button primary" disabled={busy || draft === 'loading'}>{busy ? 'Posting item…' : 'Post found item'} <Icon name="arrow" size={18} /></button>
     </form>
@@ -406,7 +409,7 @@ function Detail({ selected, data, reportId, reload, goBack, busy, setBusy }) {
       <div className="page-heading"><span className="eyebrow">FOUND ITEM #{item.id}</span><h1>{item.category}</h1><p>{item.public_description}</p></div>
       <div className="detail-meta"><span className={'status ' + item.status}>{item.status}</span><span>Found {formatDate(item.found_at)}</span></div>
       <ImageStrip photos={item.photos} />
-      <div className="info-card"><div><Icon name="pin" size={19} /><strong>Found near</strong></div><p>{item.location_note || 'the pinned campus location'}</p><small>{item.latitude.toFixed(4)}, {item.longitude.toFixed(4)}</small></div>
+      <div className="info-card"><div><Icon name="pin" size={19} /><strong>Found near</strong></div><p>{item.location_note || 'the pinned location'}</p><small>{item.latitude.toFixed(4)}, {item.longitude.toFixed(4)}</small></div>
       {own ? <div className="private-card"><span className="eyebrow">ONLY YOU CAN SEE THIS</span><h3>Private claim detail</h3><p>{item.secret_detail}</p><small>{item.ai_review === 'gemini' ? 'Reviewed with Gemini' : 'Basic review · photos remain private until AI review is available'}</small><p>Currently: {item.holding_location}</p></div> : item.status === 'open' && reportId ? <div className="claim-card"><span className="eyebrow">THINK IT'S YOURS?</span><h2>Claim this item</h2><p>{question || item.claim_question}</p>
         {submitted ? <p className="success">{message}</p> :
         <form onSubmit={sendClaim}><textarea value={answer} onChange={(e) => setAnswer(e.target.value)} required minLength={3} placeholder={manual ? 'Explain why it is yours and what proof you have…' : 'Describe the detail in your own words…'} rows={3} />
@@ -432,8 +435,16 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(true)
+  const [sites, setSites] = useState([])
+  const [siteId, setSiteId] = useState(() => { try { return localStorage.getItem('site') } catch { return null } })
+  const site = sites.find((s) => s.id === siteId) || sites[0]
+  const siteName = (id) => sites.find((s) => s.id === id)?.short || ''
+  function chooseSite(id) {
+    setSiteId(id)
+    try { localStorage.setItem('site', id) } catch { /* remembered for this visit only */ }
+  }
   async function reload() { setDashboard(await api('/dashboard/')) }
-  useEffect(() => { api('/session/').then(async (session) => { setUser(session.user); if (session.user) await reload() }).catch((e) => setMessage(e.message)).finally(() => setLoading(false)) }, [])
+  useEffect(() => { api('/session/').then(async (session) => { setSites([...session.sites].sort((a, b) => (b.id === session.default_site) - (a.id === session.default_site))); setUser(session.user); if (session.user) await reload() }).catch((e) => setMessage(e.message)).finally(() => setLoading(false)) }, [])
   async function signIn(values) {
     try { setBusy(true); setMessage(''); const result = await api('/login/', { method: 'POST', body: values }); setUser(result.user); await reload() }
     catch (e) { setMessage(e.message) } finally { setBusy(false) }
@@ -506,20 +517,21 @@ if (!user) {
       <nav><button className={view === 'home' ? 'active' : ''} onClick={home}>Home</button><button className={view === 'notifications' ? 'active' : ''} onClick={() => setView('notifications')}><Icon name="bell" size={18} /><span className="nav-label">Inbox</span>{unread > 0 && <i>{unread}</i>}</button><button className={view === 'profile' ? 'active' : ''} onClick={() => setView('profile')}><Icon name="user" size={18} /><span className="nav-label">{user.name}</span></button></nav></div></header>
     {message && <div className="global-error" role="alert">{message}<button onClick={() => setMessage('')}>×</button></div>}
     {view === 'home' && <main className="content">
-      <section className="hero"><div className="hero-copy"><span className="eyebrow">STONY BROOK · LOST & FOUND</span><h1>Find your way<br /><em>back together.</em></h1><p>A simpler way to reunite people with the things they’ve lost around campus.</p></div><div className="hero-decoration"><div className="hero-ring" /><span><Icon name="pin" size={52} /></span></div></section>
+      <section className="hero"><div className="hero-copy"><span className="eyebrow">{site ? site.short.toUpperCase() + ' · ' : ''}VERIFIED LOST & FOUND</span><h1>Find your way<br /><em>back together.</em></h1><p>One network for campuses, airports, and stations. Items only go back to people who can prove they own them.</p>
+        {sites.length > 1 && <label className="site-picker"><span>Location</span><select value={site?.id} onChange={(e) => chooseSite(e.target.value)}>{sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>}</div><div className="hero-decoration"><div className="hero-ring" /><span><Icon name="pin" size={52} /></span></div></section>
       <div className="action-grid"><button className="action-card lost-action" onClick={() => setView('lost-form')}><span className="action-icon"><Icon name="search" size={28} /></span><span><strong>I lost something</strong><small>Create a report and see your matches</small></span><Icon name="arrow" size={20} /></button><button className="action-card found-action" onClick={() => setView('found-form')}><span className="action-icon"><Icon name="box" size={28} /></span><span><strong>I found something</strong><small>Help an item get home</small></span><Icon name="arrow" size={20} /></button></div>
       <div className="home-grid"><section><div className="section-heading"><div><span className="eyebrow">YOUR ACTIVITY</span><h2>Open reports</h2></div>{(dashboard.lost.length > 0 || dashboard.found.length > 0) && <button className="text-button danger clear-all" onClick={clearReports}>Clear all</button>}</div><div className="list">{dashboard.lost.length || dashboard.found.length ? <>
-        {dashboard.lost.map((r) => <button key={'l' + r.id} className="list-card" onClick={() => openDetail('lost', r.id)}><span className="mini-icon blue"><Icon name="search" size={19} /></span><span><strong>{r.category}</strong><small>Lost · {r.status} · {formatDate(r.created_at)}</small></span><Icon name="arrow" size={18} /></button>)}
-        {dashboard.found.map((i) => <button key={'f' + i.id} className="list-card" onClick={() => openDetail('found', i.id)}><span className="mini-icon gold"><Icon name="box" size={19} /></span><span><strong>{i.category}</strong><small>Found · {i.status} · {formatDate(i.found_at)}</small></span><Icon name="arrow" size={18} /></button>)}
+        {dashboard.lost.map((r) => <button key={'l' + r.id} className="list-card" onClick={() => openDetail('lost', r.id)}><span className="mini-icon blue"><Icon name="search" size={19} /></span><span><strong>{r.category}</strong><small>Lost · {siteName(r.site)} · {r.status} · {formatDate(r.created_at)}</small></span><Icon name="arrow" size={18} /></button>)}
+        {dashboard.found.map((i) => <button key={'f' + i.id} className="list-card" onClick={() => openDetail('found', i.id)}><span className="mini-icon gold"><Icon name="box" size={19} /></span><span><strong>{i.category}</strong><small>Found · {siteName(i.site)} · {i.status} · {formatDate(i.found_at)}</small></span><Icon name="arrow" size={18} /></button>)}
       </> : <div className="empty-inline">Your reports will show up here.</div>}</div></section>
       <section><div className="section-heading"><div><span className="eyebrow">STAY IN THE LOOP</span><h2>Inbox</h2></div><button className="text-button" onClick={() => setView('notifications')}>View all →</button></div><div className="list">{dashboard.notifications.length ? dashboard.notifications.slice(0, 3).map((n) => <div className="notice-card" key={n.id}><span className="notice-dot" /><p>{n.message}</p></div>) : <div className="empty-inline">No updates yet. We’ll let you know when something happens.</div>}</div></section></div>
       {dashboard.claims.length > 0 && <section className="claims-section"><div className="section-heading"><div><span className="eyebrow">NEXT STEPS</span><h2>Claims & handoffs</h2></div><button className="text-button danger clear-all" onClick={clearClaims}>Clear all</button></div><div className="list">{dashboard.claims.map((c) => <div className="claim-row" key={c.id}><div><strong>{c.item.category} · {c.status}</strong><small>{c.contact ? 'Connect with ' + c.contact.name + (c.contact.email ? ' · ' + c.contact.email : '') + (c.contact.phone ? ' · ' + c.contact.phone : '') : c.claimant ? 'Claim from ' + c.claimant.name : 'Waiting for a decision'}</small><p>{c.answer}</p>{c.alt_question && <small>They asked for a new question: {c.alt_question.question} Expected: {c.alt_question.secret_detail}</small>}{c.proof_url && <a href={c.proof_url} target="_blank" rel="noreferrer">View proof photo</a>}</div><div className="claim-actions">{c.claimant && c.status === 'pending' && <><button onClick={async () => { await api('/claims/' + c.id + '/decision/', { method: 'POST', body: { approve: true } }); reload() }}>Approve</button><button onClick={async () => { await api('/claims/' + c.id + '/decision/', { method: 'POST', body: { approve: false } }); reload() }}>Reject</button></>}{c.status === 'approved' && c.item.status === 'handoff' && <button onClick={async () => { await api('/found/' + c.item_id + '/return/', { method: 'POST' }); reload() }}>Mark returned</button>}</div></div>)}</div></section>}
     </main>}
-    {view === 'lost-form' && <LostForm submit={submit} busy={busy} goBack={home} />}
-    {view === 'found-form' && <FoundForm submit={submit} busy={busy} goBack={home} />}
+    {view === 'lost-form' && site && <LostForm site={site} submit={submit} busy={busy} goBack={home} />}
+    {view === 'found-form' && site && <FoundForm site={site} submit={submit} busy={busy} goBack={home} />}
     {view === 'detail' && <Detail key={selected?.kind + selected?.id} selected={selected} data={detail} reportId={reportId} reload={reload} goBack={home} busy={busy} setBusy={setBusy} />}
     {view === 'notifications' && <main className="content narrow"><button className="back-link" onClick={home}>← Back to home</button><div className="page-heading"><span className="eyebrow">YOUR UPDATES</span><h1>Inbox</h1></div><div className="inbox-actions"><button className="text-button" onClick={async () => { await api('/notifications/read/', { method: 'POST' }); reload() }}>Mark all read</button>{dashboard.notifications.length > 0 && <button className="text-button danger clear-all" onClick={async () => { if (!window.confirm('Clear all notifications from your inbox?')) return; await api('/notifications/clear/', { method: 'POST' }); reload() }}>Clear all</button>}</div><div className="list">{dashboard.notifications.length ? dashboard.notifications.map((n) => <div className="notice-card" key={n.id}><span className={'notice-dot ' + (n.read ? 'muted' : '')} /><p>{n.message}</p></div>) : <div className="empty-state"><Icon name="bell" size={30} /><h3>All caught up</h3><p>New match and claim updates will land here.</p></div>}</div></main>}
     {view === 'profile' && <main className="content narrow"><button className="back-link" onClick={home}>← Back to home</button><div className="page-heading"><span className="eyebrow">ACCOUNT</span><h1>Your profile</h1><p>Contact details appear to the other person only after a claim is approved.</p></div><form className="form-card" onSubmit={async (e) => { e.preventDefault(); try { const result = await api('/profile/', { method: 'PATCH', body: { phone: e.currentTarget.phone.value } }); setUser(result); setMessage('Profile saved.') } catch (err) { setMessage(err.message) } }}><FormField label="Name"><input value={user.name} readOnly /></FormField><FormField label="Email"><input value={user.email} readOnly placeholder="Not provided" /></FormField><FormField label="Phone"><input name="phone" defaultValue={user.phone} type="tel" placeholder="Add a number for handoffs" /></FormField><button className="button primary">Save profile</button></form><button className="text-button sign-out" onClick={async () => { await api('/session/', { method: 'DELETE' }); setUser(null); setView('home') }}>Log out</button></main>}
-    <footer className="footer">ClaimCheck · Made for the Stony Brook community <span>© OpenStreetMap contributors</span></footer>
+    <footer className="footer">ClaimCheck · Verified returns for campuses, airports, and stations <span>© OpenStreetMap contributors</span></footer>
   </div>
 }

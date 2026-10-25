@@ -35,6 +35,8 @@ from . import ai
 
 from .models import Claim, ClaimQuestion, DemoUser, FoundItem, ItemPhoto, LostReport, MatchScore, Notification
 
+from .sites import DEFAULT_SITE, SITES, inside, site_json
+
 from django.conf import settings
 from django.core import signing
 from django.core.mail import send_mail
@@ -84,13 +86,27 @@ def payload(request):
 
 
 
-def coordinates(data):
+def site_for(data):
+
+    site = data.get('site') or DEFAULT_SITE
+
+    if site not in SITES:
+
+        raise ValueError('Choose a location.')
+
+    return site
+
+
+
+
+
+def coordinates(data, site):
 
     try:
 
         lat, lng = float(data['latitude']), float(data['longitude'])
 
-        if not (40.86 <= lat <= 40.94 and -73.15 <= lng <= -73.06):
+        if not inside(site, lat, lng):
 
             raise ValueError
 
@@ -98,7 +114,7 @@ def coordinates(data):
 
     except (TypeError, ValueError, KeyError):
 
-        raise ValueError('Choose a point on the campus map.')
+        raise ValueError(f'Choose a point on the {SITES[site]["short"]} map.')
 
 
 
@@ -194,7 +210,7 @@ def item_json(item, viewer):
 
     approved = viewer and Claim.objects.filter(item=item, claimant=viewer, status='approved').exists()
 
-    data = {'id': item.id, 'public_description': item.public_description, 'category': item.category,
+    data = {'id': item.id, 'site': item.site, 'public_description': item.public_description, 'category': item.category,
 
             'latitude': item.latitude, 'longitude': item.longitude, 'found_at': item.found_at.isoformat(),
 
@@ -226,7 +242,7 @@ def item_json(item, viewer):
 
 def lost_json(report):
 
-    return {'id': report.id, 'description': report.description, 'category': report.category,
+    return {'id': report.id, 'site': report.site, 'description': report.description, 'category': report.category,
 
             'latitude': report.latitude, 'longitude': report.longitude, 'radius_m': report.radius_m,
 
@@ -263,7 +279,8 @@ TIME_GRACE = timedelta(hours=1)
 FILLER = {'the', 'and', 'with', 'has', 'have', 'had', 'for', 'from', 'near', 'one', 'some', 'very', 'this',
           'that', 'its', 'was', 'are', 'were', 'lost', 'found', 'item', 'left', 'color', 'colored', 'size',
           'small', 'large', 'big', 'little', 'black', 'white', 'gray', 'grey', 'blue', 'red', 'green',
-          'yellow', 'brown', 'pink', 'purple', 'orange', 'dark', 'light', 'campus', 'room', 'floor'}
+          'yellow', 'brown', 'pink', 'purple', 'orange', 'dark', 'light', 'campus', 'room', 'floor',
+          'terminal', 'gate', 'station', 'platform', 'track'}
 
 
 def words(text):
@@ -281,6 +298,10 @@ def words(text):
 def match_parts(report, item):
 
     """How well a found item fits a lost report on text, place, and time, or None if it cannot be the same item."""
+
+    if report.site != item.site:
+
+        return None
 
     if item.found_at < report.lost_after - TIME_GRACE:
 
@@ -348,7 +369,7 @@ def matches_for(report):
 
     matches = []
 
-    for item in FoundItem.objects.filter(status='open').exclude(finder=report.owner).prefetch_related('photos'):
+    for item in FoundItem.objects.filter(status='open', site=report.site).exclude(finder=report.owner).prefetch_related('photos'):
 
         parts = match_parts(report, item)
 
@@ -488,6 +509,8 @@ def session(request):
         return JsonResponse({
             'user': user_json(user) if user else None,
             'ai_enabled': bool(os.environ.get('GEMINI_API_KEY')),
+            'sites': [site_json(s) for s in SITES],
+            'default_site': DEFAULT_SITE,
         })
     if request.method == 'DELETE':
         request.session.flush()
@@ -739,7 +762,9 @@ def lost(request):
 
     try:
 
-        lat, lng = coordinates(request.POST)
+        site = site_for(request.POST)
+
+        lat, lng = coordinates(request.POST, site)
 
         description = request.POST.get('description', '').strip()[:2000]
 
@@ -763,7 +788,7 @@ def lost(request):
 
         return error(str(exc))
 
-    report = LostReport.objects.create(owner=user, description=description, category=category,
+    report = LostReport.objects.create(owner=user, site=site, description=description, category=category,
 
                                        latitude=lat, longitude=lng, radius_m=radius,
 
@@ -775,7 +800,7 @@ def lost(request):
 
         ItemPhoto.objects.create(lost_report=report, image=file)
 
-    score_photos(candidate_pairs([report], FoundItem.objects.filter(status='open')))
+    score_photos(candidate_pairs([report], FoundItem.objects.filter(status='open', site=site)))
 
     notify_matches(report)
 
@@ -799,7 +824,9 @@ def found(request):
 
     try:
 
-        lat, lng = coordinates(request.POST)
+        site = site_for(request.POST)
+
+        lat, lng = coordinates(request.POST, site)
 
         category = request.POST.get('category', 'Other')
 
@@ -827,7 +854,7 @@ def found(request):
 
     review = ai.review_found(description, category, secret, files)
 
-    item = FoundItem.objects.create(finder=user, description=description,
+    item = FoundItem.objects.create(finder=user, site=site, description=description,
 
                                     public_description=review['public_description'],
 
@@ -845,7 +872,7 @@ def found(request):
 
         ItemPhoto.objects.create(found_item=item, image=file, public=index in review['public_photo_indexes'])
 
-    reports = list(LostReport.objects.filter(status='open').exclude(owner=user))
+    reports = list(LostReport.objects.filter(status='open', site=site).exclude(owner=user))
 
     score_photos(candidate_pairs(reports, [item]))
 

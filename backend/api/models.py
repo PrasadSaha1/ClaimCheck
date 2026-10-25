@@ -11,6 +11,7 @@ class DemoUser(models.Model):
 
 class LostReport(models.Model):
     owner = models.ForeignKey(DemoUser, on_delete=models.CASCADE, related_name='lost_reports')
+    site = models.CharField(max_length=40, default='stony-brook')  # A key in sites.SITES.
     description = models.TextField()
     category = models.CharField(max_length=40)
     latitude = models.FloatField()
@@ -26,6 +27,7 @@ class LostReport(models.Model):
 
 class FoundItem(models.Model):
     finder = models.ForeignKey(DemoUser, on_delete=models.CASCADE, related_name='found_items')
+    site = models.CharField(max_length=40, default='stony-brook')  # A key in sites.SITES.
     description = models.TextField(blank=True)
     public_description = models.TextField()
     secret_detail = models.TextField()
