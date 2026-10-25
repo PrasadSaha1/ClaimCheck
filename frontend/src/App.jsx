@@ -114,7 +114,7 @@ function SignIn({ onSignIn, onSignUp, busy, message, onClearMessage }) {
 
               <label>
                 Email
-                <small>Any email for now (change to SBU only later)</small>
+                <small>Must be an SBU email</small>
                 <input
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}

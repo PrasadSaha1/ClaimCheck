@@ -6,7 +6,15 @@ export async function api(path, options = {}) {
   const headers = { 'X-CSRFToken': decodeURIComponent(csrfToken()), ...options.headers }
   const body = options.body instanceof FormData ? options.body : options.body ? JSON.stringify(options.body) : undefined
   if (body && !(body instanceof FormData)) headers['Content-Type'] = 'application/json'
-  const response = await fetch('/api' + path, { credentials: 'same-origin', ...options, body, headers })
+const response = await fetch('/api' + path, {
+  credentials: 'same-origin',
+  ...options,
+  body,
+  headers
+})
+
+console.log("Status:", response.status)
+console.log("Response:", await response.clone().text())
   const data = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(data.error || 'Something went wrong. Try again.')
   return data
