@@ -7,6 +7,7 @@ class DemoUser(models.Model):
     phone = models.CharField(max_length=30, blank=True)
     password_hash = models.CharField(max_length=128)
     email_verified = models.BooleanField(default=False)
+    muted_notifications = models.JSONField(default=list, blank=True)  # Kinds from views.NOTIFICATION_KINDS turned off.
 
 
 class LostReport(models.Model):

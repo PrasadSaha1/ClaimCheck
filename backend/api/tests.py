@@ -114,6 +114,29 @@ class ReportFlowTests(TestCase):
         })
         self.assertEqual(outside.status_code, 400)
 
+    def test_iphone_heic_photo_is_accepted(self):
+        output = io.BytesIO()
+        Image.new('RGB', (20, 20), 'blue').save(output, 'HEIF')
+        heic = SimpleUploadedFile('IMG_0001.HEIC', output.getvalue(), content_type='image/heic')
+        response = self.finder.post('/api/found/', {
+            'photos': heic, 'description': 'black smartwatch', 'secret_detail': 'cracked corner',
+            'category': 'Electronics', 'latitude': '40.9126', 'longitude': '-73.1232',
+            'found_at': self.now.isoformat(), 'holding_location': 'With me',
+        })
+        self.assertEqual(response.status_code, 201, response.content)
+
+    def test_muted_notification_kinds_are_skipped(self):
+        response = self.owner.patch('/api/profile/', data=json.dumps({'notifications': {'posted': False}}),
+                                    content_type='application/json')
+        self.assertIs(response.json()['notifications']['posted'], False)
+        self.assertIs(response.json()['notifications']['match'], True)
+        self.lost()
+        self.found()
+        messages = lambda client: [n['message'] for n in client.get('/api/dashboard/').json()['notifications']]
+        self.assertFalse(any('is live' in m for m in messages(self.owner)))
+        self.assertTrue(any('strong match' in m for m in messages(self.owner)))
+        self.assertTrue(any('is posted' in m for m in messages(self.finder)))
+
     def test_unclaimed_item_is_donated_after_30_days(self):
         old = self.finder.post('/api/found/', {
             'photos': image(), 'description': 'grey scarf', 'secret_detail': 'name tag inside',
