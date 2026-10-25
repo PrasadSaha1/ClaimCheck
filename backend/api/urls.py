@@ -8,6 +8,7 @@ urlpatterns = [
     path('verify-email/', views.verify_email, name='verify_email'),
     path('profile/', views.profile),
     path('dashboard/', views.dashboard),
+    path('impact/', views.impact),
     path('reports/clear/', views.clear_reports),
     path('claims/clear/', views.clear_claims),
     path('lost/', views.lost),

@@ -443,7 +443,11 @@ export default function App() {
     setSiteId(id)
     try { localStorage.setItem('site', id) } catch { /* remembered for this visit only */ }
   }
-  async function reload() { setDashboard(await api('/dashboard/')) }
+  const [impact, setImpact] = useState(null)
+  async function reload() {
+    const [nextDashboard, nextImpact] = await Promise.all([api('/dashboard/'), api('/impact/')])
+    setDashboard(nextDashboard); setImpact(nextImpact)
+  }
   useEffect(() => { api('/session/').then(async (session) => { setSites([...session.sites].sort((a, b) => (b.id === session.default_site) - (a.id === session.default_site))); setUser(session.user); if (session.user) await reload() }).catch((e) => setMessage(e.message)).finally(() => setLoading(false)) }, [])
   async function signIn(values) {
     try { setBusy(true); setMessage(''); const result = await api('/login/', { method: 'POST', body: values }); setUser(result.user); await reload() }
@@ -520,6 +524,9 @@ if (!user) {
       <section className="hero"><div className="hero-copy"><span className="eyebrow">{site ? site.short.toUpperCase() + ' · ' : ''}VERIFIED LOST & FOUND</span><h1>Find your way<br /><em>back together.</em></h1><p>One network for campuses, airports, and stations. Items only go back to people who can prove they own them.</p>
         {sites.length > 1 && <label className="site-picker"><span>Location</span><select value={site?.id} onChange={(e) => chooseSite(e.target.value)}>{sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>}</div><div className="hero-decoration"><div className="hero-ring" /><span><Icon name="pin" size={52} /></span></div></section>
       <div className="action-grid"><button className="action-card lost-action" onClick={() => setView('lost-form')}><span className="action-icon"><Icon name="search" size={28} /></span><span><strong>I lost something</strong><small>Create a report and see your matches</small></span><Icon name="arrow" size={20} /></button><button className="action-card found-action" onClick={() => setView('found-form')}><span className="action-icon"><Icon name="box" size={28} /></span><span><strong>I found something</strong><small>Help an item get home</small></span><Icon name="arrow" size={20} /></button></div>
+      {impact && site && <section className="impact"><div className="section-heading"><div><span className="eyebrow">IMPACT AT {site.short.toUpperCase()}</span><h2>What ClaimCheck has done</h2></div></div>
+        <div className="impact-grid">{[['returned', 'Items returned to owners'], ['donated', 'Unclaimed items donated'], ['blocked', 'Wrong claims stopped']].map(([key, label]) => <div className="impact-tile" key={key}><strong>{impact.sites[site.id]?.[key] ?? 0}</strong><span>{label}</span></div>)}</div>
+        <small className="impact-network">Across the network: {impact.network.returned} returned · {impact.network.donated} donated · {impact.network.blocked} wrong claims stopped</small></section>}
       <div className="home-grid"><section><div className="section-heading"><div><span className="eyebrow">YOUR ACTIVITY</span><h2>Open reports</h2></div>{(dashboard.lost.length > 0 || dashboard.found.length > 0) && <button className="text-button danger clear-all" onClick={clearReports}>Clear all</button>}</div><div className="list">{dashboard.lost.length || dashboard.found.length ? <>
         {dashboard.lost.map((r) => <button key={'l' + r.id} className="list-card" onClick={() => openDetail('lost', r.id)}><span className="mini-icon blue"><Icon name="search" size={19} /></span><span><strong>{r.category}</strong><small>Lost · {siteName(r.site)} · {r.status} · {formatDate(r.created_at)}</small></span><Icon name="arrow" size={18} /></button>)}
         {dashboard.found.map((i) => <button key={'f' + i.id} className="list-card" onClick={() => openDetail('found', i.id)}><span className="mini-icon gold"><Icon name="box" size={19} /></span><span><strong>{i.category}</strong><small>Found · {siteName(i.site)} · {i.status} · {formatDate(i.found_at)}</small></span><Icon name="arrow" size={18} /></button>)}
