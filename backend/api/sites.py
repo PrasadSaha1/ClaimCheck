@@ -19,6 +19,18 @@ SITES = {
         'bounds': [[40.745, -74.0], [40.756, -73.987]],
         'desks': ['Amtrak lost & found', 'LIRR lost & found', 'NJ Transit information desk'],
     },
+    'laguardia': {
+        'name': 'LaGuardia Airport', 'short': 'LaGuardia', 'kind': 'airport',
+        'center': [40.7769, -73.874], 'zoom': 15,
+        'bounds': [[40.765, -73.895], [40.79, -73.855]],
+        'desks': ['Terminal B information desk', 'Terminal C information desk', 'Airport lost & found office'],
+    },
+    'grand-central': {
+        'name': 'Grand Central Terminal', 'short': 'Grand Central', 'kind': 'transit station',
+        'center': [40.7527, -73.9772], 'zoom': 17,
+        'bounds': [[40.749, -73.982], [40.756, -73.972]],
+        'desks': ['Metro-North lost & found', 'Main Concourse information booth', 'MTA police desk'],
+    },
 }
 
 DEFAULT_SITE = 'stony-brook'
